@@ -1,0 +1,137 @@
+# Sentry Development Environment
+# Docker Compose configuration for local edge layer development
+
+version: '3.8'
+
+services:
+  # Zeek - Passive network analysis and logging
+  zeek:
+    build: 
+      context: ./services/zeek
+      dockerfile: Dockerfile
+    container_name: cardea-zeek
+    volumes:
+      - ./data/zeek:/opt/zeek/logs
+      - ./config/zeek:/opt/zeek/etc:ro
+      - /tmp/cardea-pcap:/pcap:ro
+    environment:
+      - ZEEK_INTERFACE=${ZEEK_INTERFACE:-eth0}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - sentry-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    restart: unless-stopped
+    depends_on:
+      - bridge
+
+  # Suricata - Real-time Intrusion Detection System
+  suricata:
+    build:
+      context: ./services/suricata
+      dockerfile: Dockerfile
+    container_name: cardea-suricata
+    volumes:
+      - ./data/suricata:/var/log/suricata
+      - ./config/suricata:/etc/suricata:ro
+      - /tmp/cardea-pcap:/pcap:ro
+    environment:
+      - SURICATA_INTERFACE=${SURICATA_INTERFACE:-eth0}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+    networks:
+      - sentry-network
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    restart: unless-stopped
+    depends_on:
+      - bridge
+
+  # KitNET - AI-based anomaly detection
+  kitnet:
+    build:
+      context: ./services/kitnet
+      dockerfile: Dockerfile
+    container_name: cardea-kitnet
+    volumes:
+      - ./data/kitnet:/app/data
+      - ./config/kitnet:/app/config:ro
+      - /tmp/cardea-pcap:/pcap:ro
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - KITNET_THRESHOLD=${KITNET_THRESHOLD:-0.95}
+      - BRIDGE_URL=http://bridge:8001
+    networks:
+      - sentry-network
+    restart: unless-stopped
+    depends_on:
+      - bridge
+
+  # Bridge - Orchestration and alert escalation service
+  bridge:
+    build:
+      context: ./bridge
+      dockerfile: Dockerfile
+    container_name: cardea-bridge
+    ports:
+      - "8001:8001"  # Internal API
+    volumes:
+      - ./data/bridge:/app/data
+      - ./config/bridge:/app/config:ro
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - ORACLE_WEBHOOK_URL=${ORACLE_WEBHOOK_URL:-http://localhost:8000/api/alerts}
+      - SENTRY_ID=${SENTRY_ID:-sentry_001}
+      - ALERT_THRESHOLD=${ALERT_THRESHOLD:-0.95}
+    networks:
+      - sentry-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Local Web Interface - Setup and monitoring GUI
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    container_name: cardea-web
+    ports:
+      - "3001:3000"  # Local web interface
+    volumes:
+      - ./config/web:/app/config:ro
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - BRIDGE_API_URL=http://bridge:8001
+      - SENTRY_ID=${SENTRY_ID:-sentry_001}
+    networks:
+      - sentry-network
+    restart: unless-stopped
+    depends_on:
+      - bridge
+
+  # Redis - Local caching and session management
+  redis:
+    image: redis:7-alpine
+    container_name: cardea-redis
+    ports:
+      - "6380:6379"  # Avoid conflict with system Redis
+    volumes:
+      - redis_data:/data
+    networks:
+      - sentry-network
+    restart: unless-stopped
+
+networks:
+  sentry-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+volumes:
+  redis_data:
+    driver: local
