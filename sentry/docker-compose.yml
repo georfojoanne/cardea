@@ -1,8 +1,6 @@
 # Sentry Development Environment
 # Docker Compose configuration for local edge layer development
 
-version: '3.8'
-
 services:
   # Zeek - Passive network analysis and logging
   zeek:
@@ -15,7 +13,8 @@ services:
       - ./data/zeek:/opt/zeek/logs
       - ./services/zeek/config:/opt/zeek/etc
     environment:
-      - ZEEK_INTERFACE=${ZEEK_INTERFACE:-eth0}
+      - ZEEK_INTERFACE=${ZEEK_INTERFACE:-auto}
+      - DEV_MODE=${DEV_MODE:-true}
       - LOG_LEVEL=${LOG_LEVEL:-info}
     cap_add:
       - NET_ADMIN
@@ -88,26 +87,6 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-
-  # Local Web Interface - Setup and monitoring GUI
-  web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-    container_name: cardea-web
-    ports:
-      - "3001:3000"  # Local web interface
-    volumes:
-      - ./config/web:/app/config:ro
-    environment:
-      - NODE_ENV=${NODE_ENV:-development}
-      - BRIDGE_API_URL=http://bridge:8001
-      - SENTRY_ID=${SENTRY_ID:-sentry_001}
-    networks:
-      - sentry-network
-    restart: unless-stopped
-    depends_on:
-      - bridge
 
   # Redis - Local caching and session management
   redis:

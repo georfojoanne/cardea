@@ -22,22 +22,138 @@ from fastapi.responses import JSONResponse
 import uvicorn
 from pydantic import BaseModel, Field
 
-# Add shared utilities to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "shared"))
+# Enhanced platform detection for container environments
+class EnhancedPlatformDetector:
+    def __init__(self):
+        self.container_info = self._detect_container_environment()
+        self.os_info = self._detect_os()
+        self.network_interfaces = self._detect_network_interfaces()
+        self.docker_capabilities = self._detect_docker_capabilities()
 
-try:
-    from utils.platform_detector import PlatformDetector
-except ImportError:
-    # Fallback for container environment - create a minimal version
-    class PlatformDetector:
-        def get_os_info(self):
-            return {"name": "unknown", "version": "unknown"}
-        def get_hardware_info(self):
-            return {"cpu_cores": 1, "memory_gb": 1}
-        def get_network_interfaces(self):
-            return ["eth0"]
-        def is_docker_available(self):
-            return True
+    def _detect_container_environment(self):
+        """Detect if running inside a container"""
+        container_info = {
+            "is_container": False,
+            "type": "unknown",
+            "runtime": "unknown"
+        }
+        
+        try:
+            # Check for common container indicators
+            if Path("/.dockerenv").exists():
+                container_info["is_container"] = True
+                container_info["type"] = "docker"
+                container_info["runtime"] = "docker"
+            elif Path("/proc/1/cgroup").exists():
+                with open("/proc/1/cgroup", "r") as f:
+                    cgroup_content = f.read()
+                    if "docker" in cgroup_content:
+                        container_info["is_container"] = True
+                        container_info["type"] = "docker"
+                        container_info["runtime"] = "docker"
+            # Check environment variables
+            if os.environ.get("container") or os.environ.get("DOCKER_CONTAINER"):
+                container_info["is_container"] = True
+                container_info["type"] = "docker"
+        except Exception:
+            pass
+            
+        return container_info
+
+    def _detect_os(self):
+        """Enhanced OS detection with container awareness"""
+        import platform
+        os_info = {
+            "system": platform.system(),
+            "release": platform.release(),
+            "distribution": "unknown",
+            "distribution_version": "unknown"
+        }
+        
+        if os_info["system"] == "Linux":
+            try:
+                if Path("/etc/os-release").exists():
+                    with open("/etc/os-release", "r") as f:
+                        for line in f:
+                            if line.startswith("NAME="):
+                                os_info["distribution"] = line.split("=")[1].strip().strip('"')
+                            elif line.startswith("VERSION="):
+                                os_info["distribution_version"] = line.split("=")[1].strip().strip('"')
+                                
+                # Special handling for containers
+                if self.container_info["is_container"]:
+                    if os_info["distribution"] == "unknown":
+                        if Path("/etc/debian_version").exists():
+                            os_info["distribution"] = "Debian"
+                        elif Path("/etc/alpine-release").exists():
+                            os_info["distribution"] = "Alpine Linux"
+                            
+            except Exception:
+                pass
+                
+        return os_info
+
+    def _detect_network_interfaces(self):
+        """Detect available network interfaces"""
+        interfaces = []
+        try:
+            import subprocess
+            result = subprocess.run(["ip", "link", "show"], capture_output=True, text=True)
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    if ': ' in line and line.strip().startswith(tuple('0123456789')):
+                        name = line.split(':')[1].strip().split('@')[0]
+                        interfaces.append(name)
+        except Exception:
+            interfaces = ["eth0"]  # fallback
+            
+        return interfaces
+
+    def _detect_docker_capabilities(self):
+        """Detect Docker capabilities"""
+        capabilities = {
+            "available": False,
+            "version": None,
+            "host_networking_supported": False
+        }
+        
+        try:
+            import subprocess
+            result = subprocess.run(["docker", "--version"], capture_output=True, text=True, timeout=10)
+            if result.returncode == 0:
+                capabilities["available"] = True
+                capabilities["version"] = result.stdout.strip()
+                if self.os_info["system"] == "Linux":
+                    capabilities["host_networking_supported"] = True
+        except Exception:
+            pass
+            
+        return capabilities
+
+    # Legacy compatibility methods
+    def get_os_info(self):
+        return {"name": self.os_info.get("distribution", self.os_info.get("system", "unknown"))}
+    
+    def get_hardware_info(self):
+        return {"cpu_cores": 1, "memory_gb": 1}
+    
+    def get_network_interfaces(self):
+        return self.network_interfaces
+    
+    def is_docker_available(self):
+        return self.docker_capabilities.get("available", False)
+
+
+# Fallback minimal platform detector  
+class BasicPlatformDetector:
+    def get_os_info(self):
+        return {"name": "unknown", "version": "unknown"}
+    def get_hardware_info(self):
+        return {"cpu_cores": 1, "memory_gb": 1}
+    def get_network_interfaces(self):
+        return ["eth0"]
+    def is_docker_available(self):
+        return True
 
 # Configure logging
 logging.basicConfig(
@@ -89,7 +205,13 @@ class BridgeService:
     """Main Bridge service class"""
     
     def __init__(self):
-        self.platform_detector = PlatformDetector()
+        # Initialize enhanced platform detection
+        try:
+            self.platform_detector = EnhancedPlatformDetector()
+            logger.info("Initialized enhanced platform detection")
+        except Exception as e:
+            logger.warning(f"Enhanced platform detection failed, using basic: {e}")
+            self.platform_detector = BasicPlatformDetector()
         self.alerts: List[Alert] = []
         self.services_status: Dict[str, Dict[str, Any]] = {}
         self.data_paths = {
@@ -427,17 +549,38 @@ async def health_check():
                     "details": {"error": str(e)}
                 }
         
-        # Simplified platform info to avoid validation errors
+        # Enhanced platform info using improved platform detection
         try:
-            os_info = bridge_service.platform_detector.get_os_info()
-            interfaces = bridge_service.platform_detector.get_network_interfaces()
-            docker_available = bridge_service.platform_detector.is_docker_available()
+            detector = bridge_service.platform_detector
             
-            platform_info = {
-                "os": str(os_info.get("name", "unknown")),
-                "interfaces": str(len(interfaces) if isinstance(interfaces, list) else 0),
-                "docker": "available" if docker_available else "unavailable"
-            }
+            # Use the enhanced methods if available
+            if hasattr(detector, 'os_info') and hasattr(detector, 'container_info'):
+                # Using enhanced PlatformDetector
+                os_info = detector.os_info
+                container_info = detector.container_info
+                
+                # Get OS name, prefer distribution over system
+                os_name = os_info.get("distribution", os_info.get("system", "unknown"))
+                if os_name == "unknown" and container_info.get("is_container"):
+                    os_name = f"{os_info.get('system', 'unknown')} (container)"
+                
+                platform_info = {
+                    "os": os_name,
+                    "interfaces": str(len(detector.network_interfaces)),
+                    "docker": "available" if detector.docker_capabilities.get("available") else "unavailable"
+                }
+            else:
+                # Fallback for basic platform detector
+                os_info = detector.get_os_info()
+                interfaces = detector.get_network_interfaces()
+                docker_available = detector.is_docker_available()
+                
+                platform_info = {
+                    "os": str(os_info.get("name", "unknown")),
+                    "interfaces": str(len(interfaces) if isinstance(interfaces, list) else 0),
+                    "docker": "available" if docker_available else "unavailable"
+                }
+                
         except Exception as e:
             logger.error(f"Platform detection failed: {e}")
             platform_info = {

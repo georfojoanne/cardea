@@ -5,10 +5,25 @@ set -e
 
 echo "🛡️ Starting Suricata intrusion detection service..."
 
-# Validate environment
+# Auto-detect available network interface for dev containers
+AVAILABLE_INTERFACES=$(ip link show | grep -E '^[0-9]+: ' | grep -v 'lo:' | head -1 | cut -d: -f2 | tr -d ' ')
+
 if [ -z "$SURICATA_INTERFACE" ]; then
-    echo "❌ SURICATA_INTERFACE not set, using default: eth0"
-    export SURICATA_INTERFACE=eth0
+    if [ -n "$AVAILABLE_INTERFACES" ]; then
+        export SURICATA_INTERFACE=$AVAILABLE_INTERFACES
+        echo "✅ Auto-detected interface: $SURICATA_INTERFACE"
+    else
+        echo "⚠️  No network interfaces detected, using lo (loopback) for testing"
+        export SURICATA_INTERFACE=lo
+    fi
+else
+    echo "📡 Using configured interface: $SURICATA_INTERFACE"
+fi
+
+# Check if interface exists
+if ! ip link show $SURICATA_INTERFACE >/dev/null 2>&1; then
+    echo "❌ Interface $SURICATA_INTERFACE not found, switching to loopback for dev mode"
+    export SURICATA_INTERFACE=lo
 fi
 
 # Update rule sets
