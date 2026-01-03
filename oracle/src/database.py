@@ -7,12 +7,11 @@ import asyncio
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeBase, relationship
 from sqlalchemy import (
     Column, Integer, String, DateTime, Float, JSON, Text, 
     Boolean, ForeignKey, Index, text
 )
-from sqlalchemy.orm import relationship, selectinload
 from contextlib import asynccontextmanager
 import logging
 
@@ -21,7 +20,8 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 # Database base
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 # Database engine and session
 engine = None

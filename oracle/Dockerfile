@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 # Copy requirements first for better Docker layer caching
-COPY requirements.txt .
+COPY requirements_minimal.txt ./requirements.txt
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --compile -r requirements.txt \
@@ -27,6 +27,7 @@ RUN mkdir -p /app/data /app/config /app/logs
 COPY src/ ./src/
 COPY config/ ./config/
 COPY scripts/ ./scripts/
+# Note: Using environment-based configuration, config dir contains minimal files
 
 # Create non-root user for security
 RUN useradd -r -s /bin/false -d /app oracle \
@@ -48,4 +49,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 USER oracle
 
-ENTRYPOINT ["python", "src/main.py"]
+ENTRYPOINT ["python", "src/simple_main.py"]

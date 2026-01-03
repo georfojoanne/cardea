@@ -1,31 +1,11 @@
 -- Oracle Backend Database Initialization Script
--- Create additional database objects and initial data
+-- Basic database setup for development
 
--- Create indexes for better query performance
-CREATE INDEX IF NOT EXISTS idx_alerts_timestamp_desc ON alerts (timestamp DESC);
-CREATE INDEX IF NOT EXISTS idx_alerts_threat_score_desc ON alerts (threat_score DESC);
-CREATE INDEX IF NOT EXISTS idx_threat_intel_updated ON threat_intelligence (updated_at DESC);
-CREATE INDEX IF NOT EXISTS idx_system_metrics_timestamp ON system_metrics (timestamp DESC);
+-- Create a basic test to ensure database is working
+SELECT 1 as database_ready;
 
--- Create partitions for better performance (optional, for large datasets)
--- This can be enabled later as data grows
-
--- Insert default threat intelligence data
-INSERT INTO threat_intelligence (
-    threat_id, threat_type, severity, confidence_score,
-    name, description, indicators, first_seen, last_seen
-) VALUES 
-    ('default_malware_001', 'malware_detection', 'high', 0.9,
-     'Generic Malware Pattern', 'Default malware detection pattern',
-     '["suspicious_executable", "malicious_registry_key"]'::json,
-     NOW(), NOW()
-    ),
-    ('default_intrusion_001', 'intrusion_detection', 'high', 0.85,
-     'Network Intrusion Pattern', 'Default network intrusion pattern',
-     '["unauthorized_access", "suspicious_network_activity"]'::json,
-     NOW(), NOW()
-    )
-ON CONFLICT (threat_id) DO NOTHING;
+-- Note: Tables will be created by SQLAlchemy when the application starts
+-- This script is just for basic database validation
 
 -- Create a view for alert analytics
 CREATE OR REPLACE VIEW alert_analytics AS
