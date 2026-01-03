@@ -79,7 +79,7 @@ class KitNETDetector:
         self.feature_groups: List[List[int]] = []
         self.training_mode = True
         self.training_samples = 0
-        self.max_training_samples = 10000  # Training phase length
+        self.max_training_samples = 1000  # Training phase length - reduced for faster deployment
         self.anomaly_scores_history = []
         
         logger.info(f"Initializing KitNET with threshold: {threshold}")
@@ -94,26 +94,30 @@ class KitNETDetector:
             self.training_mode = True
     
     def extract_features(self, packet_data: dict) -> np.ndarray:
-        """Extract numerical features from packet data"""
+        """Extract numerical features from Zeek conn.log packet data"""
         features = []
         
-        # Basic packet features
+        # Zeek conn.log specific features
         features.extend([
-            packet_data.get("size", 0),
-            packet_data.get("src_port", 0),
-            packet_data.get("dest_port", 0),
-            self._ip_to_int(packet_data.get("src_ip", "0.0.0.0")),
-            self._ip_to_int(packet_data.get("dest_ip", "0.0.0.0")),
-            self._protocol_to_int(packet_data.get("protocol", "tcp"))
+            packet_data.get("orig_bytes", 0),  # Original bytes sent
+            packet_data.get("resp_bytes", 0),  # Response bytes
+            packet_data.get("duration", 0.0),  # Connection duration
+            packet_data.get("src_port", 0),    # id.orig_p
+            packet_data.get("dest_port", 0),   # id.resp_p
+            self._ip_to_int(packet_data.get("src_ip", "0.0.0.0")),  # id.orig_h
+            self._ip_to_int(packet_data.get("dest_ip", "0.0.0.0")), # id.resp_h
+            self._protocol_to_int(packet_data.get("protocol", "tcp")),
+            packet_data.get("orig_pkts", 0),   # Packets from originator
+            packet_data.get("resp_pkts", 0),   # Packets from responder
         ])
         
-        # Time-based features
+        # Time-based features from Zeek timestamp
         timestamp = packet_data.get("timestamp", datetime.now().isoformat())
         time_features = self._extract_time_features(timestamp)
         features.extend(time_features)
         
-        # Flow-based features (simplified)
-        flow_features = self._extract_flow_features(packet_data)
+        # Zeek-specific flow features
+        flow_features = self._extract_zeek_flow_features(packet_data)
         features.extend(flow_features)
         
         return np.array(features, dtype=np.float32).reshape(1, -1)
@@ -245,12 +249,26 @@ class KitNETDetector:
         except:
             return [0.0, 0.0, 0.0]
     
-    def _extract_flow_features(self, packet_data: dict) -> List[float]:
-        """Extract simplified flow-based features"""
+    def _extract_zeek_flow_features(self, packet_data: dict) -> List[float]:
+        """Extract Zeek conn.log specific flow features"""
+        # Connection state mapping
+        conn_state_map = {
+            "S0": 0.1, "S1": 0.2, "SF": 0.3, "REJ": 0.4, "S2": 0.5,
+            "S3": 0.6, "RSTO": 0.7, "RSTR": 0.8, "RSTOS0": 0.9, "RSTRH": 1.0
+        }
+        
+        conn_state = packet_data.get("conn_state", "S0")
+        conn_state_score = conn_state_map.get(conn_state, 0.0)
+        
+        # Service type encoding
+        service = packet_data.get("service", "")
+        service_score = len(service) / 20.0 if service else 0.0  # Normalize service name length
+        
         return [
-            packet_data.get("tcp_flags", 0) / 255.0,  # Normalized TCP flags
-            min(packet_data.get("ttl", 64) / 255.0, 1.0),  # TTL
-            0.0  # Placeholder for additional flow features
+            conn_state_score,  # Connection state
+            service_score,     # Service type indicator
+            min(packet_data.get("duration", 0.0) / 3600.0, 1.0),  # Duration normalized to hours
+            min((packet_data.get("orig_bytes", 0) + packet_data.get("resp_bytes", 0)) / 1000000.0, 1.0)  # Total bytes normalized to MB
         ]
     
     def save_model(self):

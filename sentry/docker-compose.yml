@@ -10,15 +10,13 @@ services:
       context: ./services/zeek
       dockerfile: Dockerfile
     container_name: cardea-zeek
+    network_mode: "host"
     volumes:
       - ./data/zeek:/opt/zeek/logs
       - ./config/zeek:/opt/zeek/etc:ro
-      - /tmp/cardea-pcap:/pcap:ro
     environment:
       - ZEEK_INTERFACE=${ZEEK_INTERFACE:-eth0}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-    networks:
-      - sentry-network
     cap_add:
       - NET_ADMIN
       - NET_RAW
@@ -32,15 +30,13 @@ services:
       context: ./services/suricata
       dockerfile: Dockerfile
     container_name: cardea-suricata
+    network_mode: "host"
     volumes:
       - ./data/suricata:/var/log/suricata
       - ./config/suricata:/etc/suricata:ro
-      - /tmp/cardea-pcap:/pcap:ro
     environment:
       - SURICATA_INTERFACE=${SURICATA_INTERFACE:-eth0}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-    networks:
-      - sentry-network
     cap_add:
       - NET_ADMIN
       - NET_RAW

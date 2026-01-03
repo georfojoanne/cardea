@@ -7,8 +7,9 @@ Handles communication with Oracle cloud service
 import asyncio
 import logging
 import aiohttp
-from typing import Dict, Any
+from typing import Dict, Any, List
 from datetime import datetime
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -22,13 +23,19 @@ class OracleClient:
         self.last_successful_ping = None
         
     async def escalate_anomaly(self, alert_data: Dict[str, Any]):
-        """Escalate high-score anomaly to Oracle"""
-        logger.warning(f"Escalating anomaly to Oracle: score={alert_data.get('anomaly_score', 0):.4f}")
+        """Escalate high-score anomaly to Oracle with evidence snapshot"""
+        logger.warning(f"🚨 Escalating anomaly to Oracle: score={alert_data.get('anomaly_score', 0):.4f}")
+        
+        # Collect evidence snapshot for the IP
+        evidence_snapshot = await self._collect_evidence_snapshot(
+            alert_data.get('network', {}).get('src_ip')
+        )
         
         escalation_data = {
             "type": "anomaly_escalation",
             "timestamp": datetime.now().isoformat(),
             "sentry_data": alert_data,
+            "evidence_snapshot": evidence_snapshot,
             "escalation_reason": "anomaly_score_threshold_exceeded",
             "requires_analysis": True
         }
@@ -48,6 +55,69 @@ class OracleClient:
         }
         
         await self._send_to_oracle(priority_data)
+    
+    async def _collect_evidence_snapshot(self, target_ip: str) -> Dict[str, Any]:
+        """Collect evidence snapshot from Zeek logs for specific IP"""
+        evidence = {
+            "target_ip": target_ip,
+            "zeek_logs": [],
+            "collection_timestamp": datetime.now().isoformat(),
+            "log_entries_found": 0
+        }
+        
+        if not target_ip:
+            return evidence
+            
+        try:
+            zeek_log_path = Path("/opt/zeek/logs/current/conn.log")
+            
+            if zeek_log_path.exists():
+                # Read last 1000 lines and find entries for this IP
+                ip_entries = []
+                
+                with open(zeek_log_path, 'r') as f:
+                    # Get last 1000 lines
+                    lines = f.readlines()[-1000:] if len(f.readlines()) > 1000 else f.readlines()
+                    
+                    for line in reversed(lines):  # Start from most recent
+                        if target_ip in line and not line.startswith('#'):
+                            # Parse Zeek log line for human-readable format
+                            parsed_entry = self._parse_zeek_line_for_evidence(line.strip())
+                            if parsed_entry:
+                                ip_entries.append(parsed_entry)
+                                
+                            # Limit to last 5 entries
+                            if len(ip_entries) >= 5:
+                                break
+                
+                evidence["zeek_logs"] = ip_entries
+                evidence["log_entries_found"] = len(ip_entries)
+                
+        except Exception as e:
+            logger.error(f"Error collecting evidence snapshot: {e}")
+            evidence["error"] = str(e)
+            
+        return evidence
+    
+    def _parse_zeek_line_for_evidence(self, line: str) -> Dict[str, Any]:
+        """Parse Zeek conn.log line into human-readable evidence format"""
+        try:
+            fields = line.split('\t')
+            if len(fields) < 10:
+                return None
+                
+            return {
+                "timestamp": datetime.fromtimestamp(float(fields[0])).strftime("%Y-%m-%d %H:%M:%S"),
+                "connection": f"{fields[2]}:{fields[3]} -> {fields[4]}:{fields[5]}",
+                "protocol": fields[6],
+                "service": fields[7] if fields[7] != '-' else "unknown",
+                "duration": f"{fields[8]}s" if fields[8] != '-' else "N/A",
+                "bytes_sent": int(fields[9]) if fields[9] != '-' else 0,
+                "bytes_received": int(fields[10]) if len(fields) > 10 and fields[10] != '-' else 0,
+                "connection_state": fields[11] if len(fields) > 11 and fields[11] != '-' else "unknown"
+            }
+        except (ValueError, IndexError):
+            return None
     
     async def _send_to_oracle(self, data: Dict[str, Any]):
         """Send data to Oracle service"""
