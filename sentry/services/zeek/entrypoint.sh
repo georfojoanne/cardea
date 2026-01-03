@@ -33,11 +33,26 @@ interface=$ZEEK_INTERFACE
 EOF
 fi
 
-# Ensure proper permissions
-sudo chown -R zeek:zeek /opt/zeek/logs
+# Create basic site configuration
+if [ ! -f "/opt/zeek/share/zeek/site/local.zeek" ]; then
+    mkdir -p /opt/zeek/share/zeek/site
+    cat > /opt/zeek/share/zeek/site/local.zeek << EOF
+# Basic Zeek configuration
+@load base/frameworks/cluster
+@load base/frameworks/logging
+@load base/protocols/conn
+@load base/protocols/http
+@load base/protocols/dns
+
+# Enable JSON logging
+redef LogAscii::output_to_file = T;
+redef LogAscii::json_timestamps = JSON::TS_ISO8601;
+redef LogAscii::use_json = T;
+EOF
+fi
 
 echo "✅ Zeek configuration complete"
 echo "🌐 Monitoring interface: $ZEEK_INTERFACE"
 
-# Start Zeek in cluster mode
-exec /opt/zeek/bin/zeekctl deploy
+# Start Zeek in standalone mode (more reliable for containers)
+exec /opt/zeek/bin/zeek -i $ZEEK_INTERFACE /opt/zeek/share/zeek/site/local.zeek
