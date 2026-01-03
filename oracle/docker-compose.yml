@@ -1,0 +1,90 @@
+# Oracle Backend Development Environment
+# Docker Compose configuration for Oracle cloud backend
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: cardea-oracle-db
+    environment:
+      POSTGRES_DB: cardea_oracle
+      POSTGRES_USER: oracle
+      POSTGRES_PASSWORD: oracle_dev_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U oracle -d cardea_oracle"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - oracle-network
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: cardea-oracle-redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6381:6379"  # Different port to avoid conflicts
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - oracle-network
+
+  # Oracle Backend Service
+  oracle:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: cardea-oracle
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://oracle:oracle_dev_password@db:5432/cardea_oracle
+      - REDIS_URL=redis://redis:6379/0
+      - SECRET_KEY=dev_secret_key_change_in_production
+      - LOG_LEVEL=INFO
+      - DEBUG=false
+      - SENTRY_WEBHOOK_TOKEN=dev_webhook_token
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    restart: unless-stopped
+    networks:
+      - oracle-network
+      - sentry_sentry-network  # Connect to Sentry network for communication
+
+# Networks
+networks:
+  oracle-network:
+    driver: bridge
+  sentry_sentry-network:
+    external: true  # Use existing Sentry network
+
+# Volumes
+volumes:
+  postgres_data:
+  redis_data:
