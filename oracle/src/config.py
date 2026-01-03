@@ -50,6 +50,17 @@ class Settings(BaseSettings):
     THREAT_SCORE_THRESHOLD: float = Field(default=0.7, env="THREAT_SCORE_THRESHOLD")
     CORRELATION_WINDOW_MINUTES: int = Field(default=60, env="CORRELATION_WINDOW_MINUTES")
     
+    # Azure OpenAI Configuration
+    AZURE_OPENAI_API_KEY: str = Field(default="", env="AZURE_OPENAI_API_KEY")
+    AZURE_OPENAI_ENDPOINT: str = Field(default="", env="AZURE_OPENAI_ENDPOINT")
+    AZURE_OPENAI_DEPLOYMENT: str = Field(default="gpt-4o", env="AZURE_OPENAI_DEPLOYMENT")
+    AZURE_OPENAI_API_VERSION: str = Field(default="2024-08-01-preview", env="AZURE_OPENAI_API_VERSION")
+    
+    # AI Agent Configuration
+    AI_ENABLED: bool = Field(default=True, env="AI_ENABLED")
+    AI_MODEL_TEMPERATURE: float = Field(default=0.3, env="AI_MODEL_TEMPERATURE")
+    AI_MAX_TOKENS: int = Field(default=1500, env="AI_MAX_TOKENS")
+    
     # Cloud Configuration (for future deployment)
     CLOUD_PROVIDER: Optional[str] = Field(default=None, env="CLOUD_PROVIDER")
     DEPLOYMENT_ENVIRONMENT: str = Field(default="development", env="ENVIRONMENT")

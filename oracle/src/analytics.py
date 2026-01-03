@@ -1,6 +1,6 @@
 """
 Analytics and Threat Processing
-Advanced threat analysis and alert correlation algorithms
+Advanced threat analysis with AI-powered agentic reasoning
 """
 
 import asyncio
@@ -11,13 +11,17 @@ import numpy as np
 from collections import defaultdict, Counter
 import json
 
+from openai import AsyncAzureOpenAI
+from openai.types.chat import ChatCompletion
+
 from models import AlertType, AlertSeverity, ThreatInfo
-from database import get_db, Alert, ThreatIntelligence, AlertCorrelation
+from database import get_db, Alert, ThreatIntelligence
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 class ThreatAnalyzer:
-    """Advanced threat analysis and scoring"""
+    """Advanced threat analysis with AI-powered agentic reasoning"""
     
     def __init__(self):
         self.threat_patterns = self._load_threat_patterns()
@@ -35,6 +39,22 @@ class ThreatAnalyzer:
             AlertType.DATA_EXFILTRATION: 1.0,
             AlertType.UNAUTHORIZED_ACCESS: 0.9
         }
+        
+        # Initialize Azure OpenAI client
+        self.ai_client = None
+        if settings.AI_ENABLED and settings.AZURE_OPENAI_API_KEY:
+            try:
+                self.ai_client = AsyncAzureOpenAI(
+                    api_key=settings.AZURE_OPENAI_API_KEY,
+                    api_version=settings.AZURE_OPENAI_API_VERSION,
+                    azure_endpoint=settings.AZURE_OPENAI_ENDPOINT
+                )
+                logger.info("✅ Azure OpenAI client initialized for agentic reasoning")
+            except Exception as e:
+                logger.warning(f"⚠️ Azure OpenAI initialization failed: {e}. Falling back to deterministic analysis.")
+                self.ai_client = None
+        else:
+            logger.info("ℹ️ AI-powered analysis disabled. Using deterministic algorithms.")
     
     def _load_threat_patterns(self) -> Dict[str, Any]:
         """Load threat intelligence patterns"""
@@ -46,42 +66,191 @@ class ThreatAnalyzer:
             "behavioral_patterns": {}
         }
     
-    async def calculate_threat_score(self, alert: Alert) -> float:
-        """Calculate comprehensive threat score for an alert"""
+    async def reason_with_ai(
+        self, 
+        prompt: str, 
+        context: Dict[str, Any], 
+        system_role: str = "You are a senior cybersecurity analyst specializing in threat intelligence and incident response."
+    ) -> Optional[str]:
+        """
+        Core AI reasoning method using Azure OpenAI
+        
+        Args:
+            prompt: The question or task for the AI
+            context: Relevant data context (alert data, network info, etc.)
+            system_role: System message defining the AI's role
+            
+        Returns:
+            AI-generated response or None if AI is unavailable
+        """
+        if not self.ai_client:
+            logger.debug("AI client not available, skipping AI reasoning")
+            return None
+        
         try:
-            base_score = 0.0
+            # Build messages for the AI
+            messages = [
+                {"role": "system", "content": system_role},
+                {"role": "user", "content": f"{prompt}\n\nContext Data:\n{json.dumps(context, indent=2, default=str)}"}
+            ]
             
-            # Base score from severity and type
-            severity_score = self.severity_weights.get(AlertSeverity(alert.severity), 0.5)
-            type_score = self.alert_type_weights.get(AlertType(alert.alert_type), 0.5)
-            base_score = (severity_score + type_score) / 2
-            
-            # Contextual scoring
-            context_score = await self._calculate_context_score(alert)
-            
-            # Historical scoring (based on similar alerts)
-            historical_score = await self._calculate_historical_score(alert)
-            
-            # Indicator scoring (based on threat intelligence)
-            indicator_score = await self._calculate_indicator_score(alert)
-            
-            # Combine scores with weights
-            final_score = (
-                base_score * 0.3 +
-                context_score * 0.3 +
-                historical_score * 0.2 +
-                indicator_score * 0.2
+            # Call Azure OpenAI
+            response: ChatCompletion = await self.ai_client.chat.completions.create(
+                model=settings.AZURE_OPENAI_DEPLOYMENT,
+                messages=messages,
+                temperature=settings.AI_MODEL_TEMPERATURE,
+                max_tokens=settings.AI_MAX_TOKENS
             )
             
-            # Normalize to 0-1 range
-            final_score = max(0.0, min(1.0, final_score))
+            ai_response = response.choices[0].message.content
+            logger.info(f"🤖 AI reasoning completed ({response.usage.total_tokens} tokens)")
+            return ai_response
             
-            logger.info(f"Calculated threat score {final_score:.3f} for alert {alert.id}")
-            return final_score
-            
+        except Exception as e:
+            logger.error(f"AI reasoning failed: {e}")
+            return None
+    
+    async def calculate_threat_score(self, alert: Alert) -> float:
+        """
+        Calculate comprehensive threat score with AI-driven intent analysis
+        Uses GPT-4o to understand attack intent and Cyber Kill Chain stage
+        """
+        try:
+            # If AI is available, use agentic reasoning for intent analysis
+            if self.ai_client:
+                return await self._calculate_threat_score_ai(alert)
+            else:
+                # Fallback to deterministic scoring
+                return await self._calculate_threat_score_deterministic(alert)
+                
         except Exception as e:
             logger.error(f"Threat score calculation failed for alert {alert.id}: {e}")
             return 0.5  # Default moderate score
+    
+    async def _calculate_threat_score_ai(self, alert: Alert) -> float:
+        """AI-powered threat scoring with Cyber Kill Chain analysis"""
+        try:
+            # Prepare context for AI analysis
+            context = {
+                "alert_type": alert.alert_type,
+                "severity": alert.severity,
+                "source": alert.source,
+                "title": alert.title,
+                "description": alert.description,
+                "timestamp": alert.timestamp.isoformat(),
+                "network_context": alert.network_context or {},
+                "raw_data": alert.raw_data or {},
+                "indicators": alert.indicators or []
+            }
+            
+            # AI prompt for intent analysis
+            prompt = """Analyze this security alert and provide a threat assessment.
+
+Your analysis should include:
+1. **Cyber Kill Chain Stage**: Identify which stage(s) this represents:
+   - Reconnaissance
+   - Weaponization
+   - Delivery
+   - Exploitation
+   - Installation
+   - Command & Control (C2)
+   - Actions on Objectives (Exfiltration)
+
+2. **Threat Score**: Rate the threat level from 0.0 to 1.0 based on:
+   - Attack sophistication
+   - Potential impact
+   - Urgency of response needed
+   - Evidence strength
+
+3. **Intent Analysis**: What is the attacker likely trying to accomplish?
+
+4. **Confidence**: How confident are you in this assessment (0.0-1.0)?
+
+Respond in JSON format:
+{
+  "kill_chain_stage": "stage_name",
+  "threat_score": 0.85,
+  "intent": "description of likely attacker intent",
+  "confidence": 0.90,
+  "reasoning": "brief explanation"
+}"""
+
+            ai_response = await self.reason_with_ai(
+                prompt=prompt,
+                context=context,
+                system_role="You are a senior cybersecurity analyst with expertise in threat intelligence, incident response, and the Cyber Kill Chain framework. Provide concise, actionable analysis."
+            )
+            
+            if ai_response:
+                # Parse AI response
+                try:
+                    # Extract JSON from response (handles markdown code blocks)
+                    import re
+                    json_match = re.search(r'```json\s*(.*?)\s*```', ai_response, re.DOTALL)
+                    if json_match:
+                        ai_analysis = json.loads(json_match.group(1))
+                    else:
+                        # Try direct JSON parsing
+                        ai_analysis = json.loads(ai_response)
+                    
+                    threat_score = float(ai_analysis.get("threat_score", 0.5))
+                    confidence = float(ai_analysis.get("confidence", 0.8))
+                    
+                    # Weight score by AI confidence
+                    final_score = threat_score * confidence
+                    
+                    logger.info(
+                        f"🤖 AI Threat Analysis for alert {alert.id}: "
+                        f"Score={threat_score:.3f}, Confidence={confidence:.3f}, "
+                        f"Stage={ai_analysis.get('kill_chain_stage', 'unknown')}"
+                    )
+                    
+                    # Store AI analysis in alert metadata (optional)
+                    alert.ai_analysis = ai_analysis
+                    
+                    return max(0.0, min(1.0, final_score))
+                    
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"Failed to parse AI response: {e}. Falling back to deterministic scoring.")
+            
+            # Fallback if AI response is invalid
+            return await self._calculate_threat_score_deterministic(alert)
+            
+        except Exception as e:
+            logger.error(f"AI threat scoring failed: {e}")
+            return await self._calculate_threat_score_deterministic(alert)
+    
+    async def _calculate_threat_score_deterministic(self, alert: Alert) -> float:
+        """Fallback deterministic threat scoring (original algorithm)"""
+        base_score = 0.0
+        
+        # Base score from severity and type
+        severity_score = self.severity_weights.get(AlertSeverity(alert.severity), 0.5)
+        type_score = self.alert_type_weights.get(AlertType(alert.alert_type), 0.5)
+        base_score = (severity_score + type_score) / 2
+        
+        # Contextual scoring
+        context_score = await self._calculate_context_score(alert)
+        
+        # Historical scoring
+        historical_score = await self._calculate_historical_score(alert)
+        
+        # Indicator scoring
+        indicator_score = await self._calculate_indicator_score(alert)
+        
+        # Combine scores with weights
+        final_score = (
+            base_score * 0.3 +
+            context_score * 0.3 +
+            historical_score * 0.2 +
+            indicator_score * 0.2
+        )
+        
+        # Normalize to 0-1 range
+        final_score = max(0.0, min(1.0, final_score))
+        
+        logger.info(f"Calculated deterministic threat score {final_score:.3f} for alert {alert.id}")
+        return final_score
     
     async def _calculate_context_score(self, alert: Alert) -> float:
         """Calculate score based on alert context"""
@@ -192,7 +361,10 @@ class ThreatAnalyzer:
         threat_types: List[AlertType] = None,
         severity_filter: AlertSeverity = None
     ) -> Dict[str, Any]:
-        """Comprehensive threat analysis across time window"""
+        """
+        Comprehensive threat analysis with AI-powered insights
+        Includes adaptive threshold recommendations for Sentry configuration
+        """
         
         try:
             end_time = datetime.now(timezone.utc)
@@ -231,14 +403,23 @@ class ThreatAnalyzer:
                 # Calculate overall risk score
                 risk_score = self._calculate_overall_risk(threats_detected)
                 
-                # Generate recommendations
-                recommendations = self._generate_recommendations(threats_detected)
+                # Generate AI-powered recommendations
+                recommendations = await self._generate_recommendations_ai(threats_detected) if self.ai_client else self._generate_recommendations_deterministic(threats_detected)
+                
+                # Generate adaptive threshold recommendation
+                threshold_recommendation = await self._recommend_threshold_adjustment(
+                    alerts=alerts,
+                    threats=threats_detected,
+                    time_window=time_window
+                )
                 
                 return {
                     "threats": threats_detected,
                     "risk_score": risk_score,
                     "recommendations": recommendations,
-                    "correlations": correlations
+                    "correlations": correlations,
+                    "threshold_recommendation": threshold_recommendation,
+                    "ai_enhanced": self.ai_client is not None
                 }
                 
         except Exception as e:
@@ -247,8 +428,150 @@ class ThreatAnalyzer:
                 "threats": [],
                 "risk_score": 0.0,
                 "recommendations": [],
-                "correlations": []
+                "correlations": [],
+                "threshold_recommendation": None,
+                "ai_enhanced": False
             }
+    
+    async def _recommend_threshold_adjustment(
+        self,
+        alerts: List[Alert],
+        threats: List[ThreatInfo],
+        time_window: int
+    ) -> Dict[str, Any]:
+        """
+        AI-powered adaptive threshold recommendation for KitNET Sentry
+        Analyzes alert patterns to suggest optimal detection sensitivity
+        """
+        if not self.ai_client:
+            return self._recommend_threshold_deterministic(alerts, threats, time_window)
+        
+        try:
+            # Prepare metrics for AI analysis
+            total_alerts = len(alerts)
+            alerts_per_hour = (total_alerts / time_window) * 3600
+            
+            severity_distribution = Counter(a.severity for a in alerts)
+            alert_type_distribution = Counter(a.alert_type for a in alerts)
+            
+            high_severity_ratio = (
+                severity_distribution.get(AlertSeverity.HIGH.value, 0) +
+                severity_distribution.get(AlertSeverity.CRITICAL.value, 0)
+            ) / max(total_alerts, 1)
+            
+            context = {
+                "time_window_hours": time_window / 3600,
+                "total_alerts": total_alerts,
+                "alerts_per_hour": round(alerts_per_hour, 2),
+                "severity_distribution": dict(severity_distribution),
+                "alert_type_distribution": dict(alert_type_distribution),
+                "high_severity_ratio": round(high_severity_ratio, 3),
+                "threats_detected": len(threats),
+                "current_threshold": 0.95
+            }
+            
+            prompt = """Analyze the current alert patterns from the Cardea Sentry system and recommend if the KITNET_THRESHOLD should be adjusted.
+
+Current threshold is 0.95 (alerts triggered when anomaly score ≥ 0.95).
+
+Consider:
+- Alert volume and frequency
+- Ratio of high-severity alerts (potential true positives)
+- Threat detection effectiveness
+- Risk of alert fatigue vs. risk of missed threats
+
+Provide recommendation in JSON format:
+{
+  "action": "LOWER|MAINTAIN|RAISE",
+  "recommended_value": 0.93,
+  "reasoning": "brief explanation",
+  "confidence": 0.85,
+  "expected_impact": "what will change"
+}
+
+Guidelines:
+- LOWER (0.90-0.94): If missing critical threats or low alert volume with high severity ratio
+- MAINTAIN (0.95): If current balance is optimal
+- RAISE (0.96-0.98): If too many false positives or alert fatigue evident"""
+
+            ai_response = await self.reason_with_ai(
+                prompt=prompt,
+                context=context,
+                system_role="You are a cybersecurity engineer specializing in intrusion detection system tuning and anomaly detection optimization."
+            )
+            
+            if ai_response:
+                try:
+                    # Extract JSON from response
+                    import re
+                    json_match = re.search(r'```json\s*(.*?)\s*```', ai_response, re.DOTALL)
+                    if json_match:
+                        recommendation = json.loads(json_match.group(1))
+                    else:
+                        recommendation = json.loads(ai_response)
+                    
+                    logger.info(
+                        f"🎚️ AI Threshold Recommendation: {recommendation['action']} "
+                        f"to {recommendation.get('recommended_value', 0.95)}"
+                    )
+                    
+                    return {
+                        "action": recommendation.get("action", "MAINTAIN"),
+                        "recommended_value": recommendation.get("recommended_value", 0.95),
+                        "current_value": 0.95,
+                        "reasoning": recommendation.get("reasoning", ""),
+                        "confidence": recommendation.get("confidence", 0.5),
+                        "expected_impact": recommendation.get("expected_impact", ""),
+                        "ai_generated": True
+                    }
+                    
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"Failed to parse AI threshold recommendation: {e}")
+            
+        except Exception as e:
+            logger.error(f"AI threshold recommendation failed: {e}")
+        
+        return self._recommend_threshold_deterministic(alerts, threats, time_window)
+    
+    def _recommend_threshold_deterministic(
+        self,
+        alerts: List[Alert],
+        threats: List[ThreatInfo],
+        time_window: int
+    ) -> Dict[str, Any]:
+        """Deterministic threshold recommendation based on heuristics"""
+        total_alerts = len(alerts)
+        alerts_per_hour = (total_alerts / time_window) * 3600 if time_window > 0 else 0
+        
+        high_severity_count = sum(
+            1 for a in alerts 
+            if a.severity in [AlertSeverity.HIGH.value, AlertSeverity.CRITICAL.value]
+        )
+        high_severity_ratio = high_severity_count / max(total_alerts, 1)
+        
+        # Decision logic
+        if alerts_per_hour < 1 and high_severity_ratio > 0.5:
+            action = "LOWER"
+            recommended_value = 0.93
+            reasoning = "Low alert volume but high severity ratio suggests we may be missing threats"
+        elif alerts_per_hour > 20 and high_severity_ratio < 0.1:
+            action = "RAISE"
+            recommended_value = 0.97
+            reasoning = "High alert volume with low severity ratio indicates potential alert fatigue"
+        else:
+            action = "MAINTAIN"
+            recommended_value = 0.95
+            reasoning = "Current threshold appears balanced for the threat landscape"
+        
+        return {
+            "action": action,
+            "recommended_value": recommended_value,
+            "current_value": 0.95,
+            "reasoning": reasoning,
+            "confidence": 0.7,
+            "expected_impact": f"Alert volume may {'increase' if action == 'LOWER' else 'decrease' if action == 'RAISE' else 'remain stable'}",
+            "ai_generated": False
+        }
     
     def _group_threats(self, alerts: List[Alert]) -> Dict[str, List[Alert]]:
         """Group related alerts into threat clusters"""
@@ -312,7 +635,119 @@ class ThreatAnalyzer:
         return min(1.0, risk_score)
     
     def _generate_recommendations(self, threats: List[ThreatInfo]) -> List[str]:
-        """Generate security recommendations based on detected threats"""
+        """
+        Generate AI-powered security recommendations
+        Fallback to deterministic recommendations if AI unavailable
+        """
+        if self.ai_client and threats:
+            # Use async wrapper for AI recommendations
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                return loop.run_until_complete(self._generate_recommendations_ai(threats))
+            except Exception as e:
+                logger.warning(f"AI recommendations failed: {e}. Using deterministic fallback.")
+        
+        return self._generate_recommendations_deterministic(threats)
+    
+    async def _generate_recommendations_ai(self, threats: List[ThreatInfo]) -> List[str]:
+        """AI-powered recommendations with adaptive threshold suggestions"""
+        try:
+            # Prepare threat summary for AI
+            threat_summary = []
+            for threat in threats:
+                threat_summary.append({
+                    "threat_type": threat.threat_type.value,
+                    "severity": threat.severity.value,
+                    "confidence": threat.confidence_score,
+                    "first_seen": threat.first_seen.isoformat(),
+                    "last_seen": threat.last_seen.isoformat(),
+                    "indicators": threat.indicators[:5],  # Limit for token efficiency
+                    "affected_assets": len(threat.affected_assets)
+                })
+            
+            context = {
+                "total_threats": len(threats),
+                "threat_details": threat_summary,
+                "time_window": "Recent analysis period",
+                "high_severity_count": sum(1 for t in threats if t.severity in [AlertSeverity.HIGH, AlertSeverity.CRITICAL])
+            }
+            
+            prompt = """As a cybersecurity expert, analyze these detected threats and provide actionable recommendations for a non-technical business owner.
+
+Structure your response EXACTLY in three sections:
+
+## What Happened
+[2-3 sentences explaining the security events in plain language, avoiding technical jargon]
+
+## Why It Matters
+[2-3 sentences explaining the business impact and risk - what could happen if not addressed]
+
+## What To Do Now
+[3-5 numbered action items in priority order, each starting with an action verb]
+
+ADDITIONAL ANALYSIS:
+- **KITNET Threshold Adjustment**: Based on the current threat volume and pattern, should the Sentry's KITNET_THRESHOLD (currently 0.95) be adjusted? Recommend LOWER (more sensitive), MAINTAIN (current is good), or RAISE (reduce false positives). Provide specific value and brief reasoning.
+
+Use clear, direct language suitable for a small business owner without cybersecurity expertise."""
+
+            ai_response = await self.reason_with_ai(
+                prompt=prompt,
+                context=context,
+                system_role="You are a senior cybersecurity consultant who specializes in translating technical threats into business language for SME owners. Be concise, actionable, and reassuring while conveying urgency appropriately."
+            )
+            
+            if ai_response:
+                # Parse the response into structured format
+                recommendations = []
+                
+                # Extract sections
+                sections = {
+                    "what_happened": "",
+                    "why_it_matters": "",
+                    "what_to_do": "",
+                    "threshold_adjustment": ""
+                }
+                
+                current_section = None
+                for line in ai_response.split('\n'):
+                    line = line.strip()
+                    if '## What Happened' in line or '**What Happened**' in line:
+                        current_section = "what_happened"
+                    elif '## Why It Matters' in line or '**Why It Matters**' in line:
+                        current_section = "why_it_matters"
+                    elif '## What To Do Now' in line or '**What To Do Now**' in line:
+                        current_section = "what_to_do"
+                    elif 'KITNET Threshold' in line or 'Threshold Adjustment' in line:
+                        current_section = "threshold_adjustment"
+                    elif current_section and line:
+                        sections[current_section] += line + " "
+                
+                # Format as structured recommendations
+                if sections["what_happened"]:
+                    recommendations.append(f"📋 WHAT HAPPENED: {sections['what_happened'].strip()}")
+                if sections["why_it_matters"]:
+                    recommendations.append(f"⚠️ WHY IT MATTERS: {sections['why_it_matters'].strip()}")
+                if sections["what_to_do"]:
+                    recommendations.append(f"✅ WHAT TO DO NOW: {sections['what_to_do'].strip()}")
+                if sections["threshold_adjustment"]:
+                    recommendations.append(f"🎚️ SENTRY ADJUSTMENT: {sections['threshold_adjustment'].strip()}")
+                
+                # If parsing failed, use raw response
+                if not recommendations:
+                    recommendations.append(ai_response)
+                
+                logger.info(f"🤖 Generated {len(recommendations)} AI-powered recommendations")
+                return recommendations
+                
+        except Exception as e:
+            logger.error(f"AI recommendation generation failed: {e}")
+        
+        # Fallback to deterministic
+        return self._generate_recommendations_deterministic(threats)
+    
+    def _generate_recommendations_deterministic(self, threats: List[ThreatInfo]) -> List[str]:
+        """Deterministic security recommendations (original algorithm)"""
         recommendations = []
         
         threat_types = [t.threat_type for t in threats]
