@@ -1,5 +1,5 @@
 # Cardea Oracle Cloud Backend
-# Full Production-Ready MVP Configuration
+# Full Production-Ready MVP Configuration - Portable & Automatic
 
 services:
   # 1. PostgreSQL - Persistent Threat Storage
@@ -46,7 +46,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      # CRITICAL: Using +asyncpg for FastAPI performance
+      # Using +asyncpg for FastAPI performance
       - DATABASE_URL=postgresql+asyncpg://oracle:${DB_PASSWORD:-oracle_dev_password}@db:5432/cardea_oracle
       - REDIS_URL=redis://redis:6379/0
       - LOG_LEVEL=INFO
@@ -70,10 +70,16 @@ services:
     restart: unless-stopped
 
 networks:
+  # Internal network for DB and Redis
   oracle-network:
     driver: bridge
+  
+  # External-facing network for Sentry communication
+  # FIX: Automatic creation and global naming
   sentry_sentry-network:
-    external: true
+    name: sentry_sentry-network
+    driver: bridge
+    attachable: true
 
 volumes:
   postgres_data:

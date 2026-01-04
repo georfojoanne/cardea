@@ -1,52 +1,45 @@
-# Oracle Backend Service - Cloud Intelligence Platform
-# FastAPI-based security analytics and threat correlation service
-
 FROM python:3.11-slim
 
-# Install system dependencies (optimized for cloud deployment)
+# Install system dependencies + COMPILERS required for scikit-learn/pandas
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    gcc \
+    g++ \
+    build-essential \
+    libpq-dev \
     postgresql-client \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    && rm -rf /var/lib/apt/lists/*
 
-# Create app directory
 WORKDIR /app
 
-# Copy requirements first for better Docker layer caching
+# Copy requirements first
 COPY requirements.txt ./requirements.txt
 
-# Install Python dependencies
-RUN pip install --no-cache-dir --compile -r requirements.txt \
-    && pip cache purge
+# Install dependencies (This will take longer now but will succeed)
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Create necessary directories
+# Create directories
 RUN mkdir -p /app/data /app/config /app/logs
 
 # Copy application code
 COPY src/ ./src/
 COPY config/ ./config/
 COPY scripts/ ./scripts/
-# Note: Using environment-based configuration, config dir contains minimal files
 
-# Create non-root user for security
+# Security: Non-root user
 RUN useradd -r -s /bin/false -d /app oracle \
     && chown -R oracle:oracle /app
 
-# Environment variables
 ENV PYTHONPATH=/app \
     LOG_LEVEL=info \
     PORT=8000 \
     PYTHONUNBUFFERED=1 \
-    DATABASE_URL=postgresql://oracle:password@db:5432/cardea_oracle
+    DATABASE_URL=postgresql+asyncpg://oracle:password@db:5432/cardea_oracle
 
-# Expose port
 EXPOSE 8000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
 
 USER oracle
 
-ENTRYPOINT ["python", "src/simple_main.py"]
+# Use the main.py we refactored, or simple_main.py if you prefer
+ENTRYPOINT ["python", "src/main.py"]

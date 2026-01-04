@@ -1,73 +1,66 @@
 """
 Oracle Backend Configuration
-Environment-based configuration management for cloud deployment
+Updated for Pydantic v2 and environment-based configuration
 """
 
 import os
 from typing import Optional
-from pydantic import BaseSettings, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict # FIX: Correct Pydantic v2 imports
+from pydantic import Field
 
 class Settings(BaseSettings):
-    """Application settings with environment variable support"""
+    """Application settings with environment variable support (Pydantic v2)"""
     
     # Service Configuration
     APP_NAME: str = "Cardea Oracle Backend"
     VERSION: str = "1.0.0"
-    DEBUG: bool = Field(default=False, env="DEBUG")
-    LOG_LEVEL: str = Field(default="INFO", env="LOG_LEVEL")
-    PORT: int = Field(default=8000, env="PORT")
+    DEBUG: bool = True
+    LOG_LEVEL: str = "INFO"
+    PORT: int = 8000
     
-    # Database Configuration
-    DATABASE_URL: str = Field(
-        default="postgresql://oracle:password@localhost:5432/cardea_oracle",
-        env="DATABASE_URL"
-    )
+    # Database Configuration (FIX: Default set to your Docker DB container name)
+    DATABASE_URL: str = "postgresql+asyncpg://oracle:oracle_dev_password@db:5432/cardea_oracle"
     
     # Redis Configuration  
-    REDIS_URL: str = Field(
-        default="redis://localhost:6379/0",
-        env="REDIS_URL"
-    )
+    REDIS_URL: str = "redis://redis:6379/0"
     
     # Security Configuration
-    SECRET_KEY: str = Field(
-        default="your-secret-key-change-in-production",
-        env="SECRET_KEY"
-    )
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30, env="TOKEN_EXPIRE_MINUTES")
+    SECRET_KEY: str = "your-secret-key-change-in-production"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     
     # Sentry Integration
-    SENTRY_WEBHOOK_TOKEN: str = Field(
-        default="sentry-webhook-token",
-        env="SENTRY_WEBHOOK_TOKEN"
-    )
+    SENTRY_WEBHOOK_TOKEN: str = "sentry-webhook-token"
     
     # Alert Processing
-    MAX_ALERTS_PER_BATCH: int = Field(default=100, env="MAX_ALERTS_PER_BATCH")
-    ALERT_RETENTION_DAYS: int = Field(default=90, env="ALERT_RETENTION_DAYS")
+    MAX_ALERTS_PER_BATCH: int = 100
+    ALERT_RETENTION_DAYS: int = 90
     
     # Threat Intelligence
-    THREAT_SCORE_THRESHOLD: float = Field(default=0.7, env="THREAT_SCORE_THRESHOLD")
-    CORRELATION_WINDOW_MINUTES: int = Field(default=60, env="CORRELATION_WINDOW_MINUTES")
+    THREAT_SCORE_THRESHOLD: float = 0.7
+    CORRELATION_WINDOW_MINUTES: int = 60
     
-    # Azure OpenAI Configuration
-    AZURE_OPENAI_API_KEY: str = Field(default="", env="AZURE_OPENAI_API_KEY")
-    AZURE_OPENAI_ENDPOINT: str = Field(default="", env="AZURE_OPENAI_ENDPOINT")
-    AZURE_OPENAI_DEPLOYMENT: str = Field(default="gpt-4o", env="AZURE_OPENAI_DEPLOYMENT")
-    AZURE_OPENAI_API_VERSION: str = Field(default="2024-08-01-preview", env="AZURE_OPENAI_API_VERSION")
+    # Azure OpenAI Configuration (FIX: Defaults to prevent validation crash)
+    AZURE_OPENAI_API_KEY: Optional[str] = None
+    AZURE_OPENAI_ENDPOINT: Optional[str] = None
+    AZURE_OPENAI_DEPLOYMENT: str = "gpt-4o"
+    AZURE_OPENAI_API_VERSION: str = "2024-08-01-preview"
     
     # AI Agent Configuration
-    AI_ENABLED: bool = Field(default=True, env="AI_ENABLED")
-    AI_MODEL_TEMPERATURE: float = Field(default=0.3, env="AI_MODEL_TEMPERATURE")
-    AI_MAX_TOKENS: int = Field(default=1500, env="AI_MAX_TOKENS")
+    AI_ENABLED: bool = False # Disabled by default until keys are provided
+    AI_MODEL_TEMPERATURE: float = 0.3
+    AI_MAX_TOKENS: int = 1500
     
-    # Cloud Configuration (for future deployment)
-    CLOUD_PROVIDER: Optional[str] = Field(default=None, env="CLOUD_PROVIDER")
-    DEPLOYMENT_ENVIRONMENT: str = Field(default="development", env="ENVIRONMENT")
+    # Cloud Configuration
+    CLOUD_PROVIDER: Optional[str] = None
+    DEPLOYMENT_ENVIRONMENT: str = "development"
     
-    class Config:
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+    # Pydantic v2 Model Configuration
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore" # Prevents crashes if extra vars exist in .env
+    )
 
 # Global settings instance
 settings = Settings()
