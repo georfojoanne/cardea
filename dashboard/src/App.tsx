@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Shield, Activity, Zap } from 'lucide-react';
-import type { AnalyticsResponse, Alert } from './types';
+import { Shield, Activity, Zap, Server } from 'lucide-react';
+import type { AnalyticsResponse, Alert } from './types'; 
+import { NetworkMap } from './components/NetworkMap';
 
 const ORACLE_URL = "http://localhost:8000";
 
@@ -23,72 +24,128 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, []);
 
-  if (!data) return <div className="p-10 bg-slate-900 h-screen">Loading Oracle Data...</div>;
-
-  return (
-    <div className="p-8 bg-slate-950 min-h-screen text-slate-100">
-      <nav className="flex items-center justify-between mb-10 border-b border-slate-800 pb-5">
-        <div className="flex items-center gap-3">
-          <Shield className="text-cyan-400 w-8 h-8" />
-          <h1 className="text-2xl font-black tracking-tighter">CARDEA <span className="text-cyan-500">ORACLE</span></h1>
-        </div>
-        <div className="px-4 py-1 rounded-full bg-cyan-950 border border-cyan-800 text-cyan-400 text-sm flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-          Azure AI Connected
-        </div>
-      </nav>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-        <MetricCard title="Total Anomalies" value={data.total_alerts} icon={<Activity />} />
-        <MetricCard title="Global Risk Level" value={`${(data.risk_score * 100).toFixed(1)}%`} icon={<Zap />} />
-        <MetricCard title="Sentry Status" value="Online" icon={<Shield />} />
-      </div>
-
-      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-slate-800/50 text-slate-400 text-xs font-bold uppercase">
-            <tr>
-              <th className="p-4">Timestamp</th>
-              <th className="p-4">Source</th>
-              <th className="p-4">Threat Type</th>
-              <th className="p-4">Azure AI Reasoning</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.alerts.map((alert) => (
-              <tr key={alert.id} className="border-t border-slate-800 hover:bg-slate-800/30 transition-colors">
-                <td className="p-4 text-slate-500 text-sm">
-                  {new Date(alert.timestamp).toLocaleTimeString()}
-                </td>
-                <td className="p-4 font-mono text-cyan-200">{alert.source}</td>
-                <td className="p-4">
-                  <span className={`px-2 py-0.5 rounded text-xs font-bold ${getSeverityClass(alert.severity)}`}>
-                    {alert.alert_type}
-                  </span>
-                </td>
-                <td className="p-4 text-slate-300 max-w-md truncate">{alert.description}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+  if (!data) return (
+    <div className="flex items-center justify-center h-screen bg-slate-950 text-slate-600 font-mono text-sm tracking-tighter">
+      <div className="flex flex-col items-center gap-4">
+        <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+        INITIALIZING CARDEA ORACLE CONNECTION...
       </div>
     </div>
   );
-};
 
-const getSeverityClass = (severity: string) => {
-  if (severity === 'high' || severity === 'critical') return 'bg-red-950 text-red-400 border border-red-800';
-  return 'bg-yellow-950 text-yellow-400 border border-yellow-800';
-};
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-cyan-500/30">
+      {/* Clean, Plain Header */}
+      <header className="border-b border-slate-900 bg-slate-950/50 backdrop-blur-md sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <Shield className="w-5 h-5 text-cyan-500" />
+            <span className="font-bold tracking-tight text-lg">
+              CARDEA <span className="text-slate-500 font-light">ORACLE</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-6 text-[10px] font-bold text-slate-500 tracking-widest">
+            <span className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> 
+              CLOUD ENGINE ONLINE
+            </span>
+            <span className="flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-cyan-500" /> 
+              SENTRY: X230-ARCH
+            </span>
+          </div>
+        </div>
+      </header>
 
-const MetricCard: React.FC<{ title: string, value: string | number, icon: React.ReactNode }> = ({ title, value, icon }) => (
-  <div className="bg-slate-900 p-6 rounded-xl border border-slate-800 shadow-xl">
-    <div className="flex justify-between items-center mb-2">
-      <h3 className="text-slate-500 font-bold uppercase text-xs tracking-widest">{title}</h3>
-      <div className="text-cyan-500 opacity-50">{icon}</div>
+      <main className="max-w-7xl mx-auto px-6 py-10 space-y-6">
+        
+        {/* TOP ROW: Visualization & High-Level Metrics */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2">
+            <NetworkMap />
+          </div>
+          
+          <div className="flex flex-col gap-6">
+            <div className="bg-slate-900/40 border border-slate-900 p-6 rounded-xl flex-1 flex flex-col justify-center">
+              <div className="flex items-center gap-2 text-slate-500 mb-2">
+                <Zap className="w-3 h-3 text-cyan-500" />
+                <p className="text-[10px] font-bold uppercase tracking-wider">Risk Index</p>
+              </div>
+              <p className="text-5xl font-extralight text-cyan-400">
+                {(data.risk_score * 100).toFixed(1)}%
+              </p>
+              <p className="text-[10px] text-slate-600 mt-4 leading-relaxed font-medium">
+                AGGREGATED THREAT LEVEL CALCULATED VIA AGENTIC REASONING (GPT-4O).
+              </p>
+            </div>
+            
+            <div className="bg-slate-900/40 border border-slate-900 p-6 rounded-xl flex-1 flex flex-col justify-center">
+              <div className="flex items-center gap-2 text-slate-500 mb-2">
+                <Activity className="w-3 h-3 text-purple-500" />
+                <p className="text-[10px] font-bold uppercase tracking-wider">Total Events</p>
+              </div>
+              <p className="text-5xl font-extralight">{data.total_alerts}</p>
+              <p className="text-[10px] text-slate-600 mt-4 leading-relaxed font-medium">
+                PACKETS ANALYZED BY KITNET & ESCALATED BY SENTRY BRIDGE.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* BOTTOM ROW: Alert Feed Table */}
+        <div className="bg-slate-900/20 border border-slate-900 rounded-xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-slate-900 bg-slate-900/40 flex items-center gap-2">
+            <Server className="w-4 h-4 text-slate-500" />
+            <h2 className="text-xs font-bold uppercase tracking-widest text-slate-400">Live Anomaly Feed</h2>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="text-slate-600 text-[10px] uppercase tracking-widest border-b border-slate-900/50">
+                  <th className="px-6 py-4 font-bold">Time</th>
+                  <th className="px-6 py-4 font-bold">Event Details</th>
+                  <th className="px-6 py-4 font-bold">Source Node</th>
+                  <th className="px-6 py-4 font-bold text-right">Severity</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-900/50">
+                {data.alerts.map((alert: Alert) => (
+                  <tr key={alert.id} className="hover:bg-slate-900/40 transition-colors group">
+                    <td className="px-6 py-5 text-xs text-slate-500 font-mono tabular-nums">
+                      {new Date(alert.timestamp).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </td>
+                    <td className="px-6 py-5">
+                      <p className="text-sm font-semibold text-slate-300 group-hover:text-cyan-400 transition-colors">
+                        {alert.alert_type.replace('_', ' ').toUpperCase()}
+                      </p>
+                      <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{alert.description}</p>
+                    </td>
+                    <td className="px-6 py-5 text-xs font-mono text-slate-400">
+                      {alert.source}
+                    </td>
+                    <td className="px-6 py-5 text-right">
+                      <span className={`text-[9px] font-black px-2.5 py-1 rounded border tracking-tighter ${
+                        alert.severity === 'high' || alert.severity === 'critical' 
+                        ? 'border-red-900/50 bg-red-950/20 text-red-500' 
+                        : 'border-cyan-900/50 bg-cyan-950/20 text-cyan-500'
+                      }`}>
+                        {alert.severity.toUpperCase()}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data.alerts.length === 0 && (
+            <div className="p-20 text-center text-slate-700 text-xs font-mono italic">
+              NO ANOMALIES DETECTED IN CURRENT TIME WINDOW
+            </div>
+          )}
+        </div>
+      </main>
     </div>
-    <p className="text-4xl font-extrabold">{value}</p>
-  </div>
-);
+  );
+};
 
 export default App;

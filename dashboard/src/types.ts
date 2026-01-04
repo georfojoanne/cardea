@@ -15,3 +15,18 @@ export interface Alert {
     risk_score: number;
     alerts: Alert[];
   }
+
+  export interface FlowData {
+    nodes: Array<{
+      id: string;
+      type: string;
+      data: { label: string; status?: string };
+      position: { x: number; y: number };
+    }>;
+    edges: Array<{
+      id: string;
+      source: string;
+      target: string;
+      animated?: boolean;
+    }>;
+  }
