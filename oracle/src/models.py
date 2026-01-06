@@ -46,21 +46,21 @@ class AlertRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=200, description="Alert title")
     description: str = Field(..., min_length=1, description="Detailed alert description")
     timestamp: Optional[datetime] = Field(default=None, description="Alert timestamp")
-    raw_data: Dict[str, Any] = Field(default_factory=dict, description="Raw alert data")
-    network_context: Optional[Dict[str, Any]] = Field(default=None, description="Network context")
-    indicators: List[str] = Field(default_factory=list, description="Threat indicators")
+    raw_data: dict[str, Any] = Field(default_factory=dict, description="Raw alert data")
+    network_context: Optional[dict[str, Any]] = Field(default=None, description="Network context")
+    indicators: list[str] = Field(default_factory=list, description="Threat indicators")
 
 class ThreatAnalysisRequest(BaseModel):
     """Request for threat analysis"""
     time_window: int = Field(default=3600, ge=60, le=86400, description="Analysis time window in seconds")
-    threat_types: List[AlertType] = Field(default_factory=list, description="Specific threat types to analyze")
+    threat_types: list[AlertType] = Field(default_factory=list, description="Specific threat types to analyze")
     severity_filter: Optional[AlertSeverity] = Field(default=None, description="Filter by severity")
     include_correlations: bool = Field(default=True, description="Include alert correlations")
 
 class AnalyticsRequest(BaseModel):
     """Request for analytics data"""
     time_range: str = Field(default="24h", description="Time range (1h, 6h, 24h, 7d, 30d)")
-    metrics: List[str] = Field(default_factory=list, description="Specific metrics to include")
+    metrics: list[str] = Field(default_factory=list, description="Specific metrics to include")
 
 # Response Models
 class HealthResponse(BaseModel):
@@ -68,7 +68,7 @@ class HealthResponse(BaseModel):
     status: str
     timestamp: datetime
     version: str
-    services: Dict[str, Dict[str, Any]]
+    services: dict[str, dict[str, Any]]
     system: "SystemStatus"
 
 class SystemStatus(BaseModel):
@@ -83,7 +83,7 @@ class AlertResponse(BaseModel):
     alert_id: int
     status: str
     threat_score: Optional[float] = None
-    correlations: List[Dict[str, Any]] = Field(default_factory=list)
+    correlations: list[dict[str, Any]] = Field(default_factory=list)
     processing_time_ms: int
 
 class ThreatInfo(BaseModel):
@@ -94,16 +94,16 @@ class ThreatInfo(BaseModel):
     confidence_score: float
     first_seen: datetime
     last_seen: datetime
-    indicators: List[str]
-    affected_assets: List[str]
+    indicators: list[str]
+    affected_assets: list[str]
 
 class ThreatAnalysisResponse(BaseModel):
     """Threat analysis results"""
     analysis_id: str
-    threats_detected: List[ThreatInfo]
+    threats_detected: list[ThreatInfo]
     risk_score: float = Field(ge=0.0, le=1.0)
-    recommendations: List[str]
-    correlations: List[Dict[str, Any]]
+    recommendations: list[str]
+    correlations: list[dict[str, Any]]
     processing_time_ms: int
 
 class AIInsight(BaseModel):
@@ -111,7 +111,7 @@ class AIInsight(BaseModel):
     summary: str = Field(..., description="Brief summary of the security situation")
     what_happened: str = Field(default="", description="Plain language explanation of events")
     why_it_matters: str = Field(default="", description="Business impact explanation")
-    recommended_actions: List[str] = Field(default_factory=list, description="Prioritized action items")
+    recommended_actions: list[str] = Field(default_factory=list, description="Prioritized action items")
     confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="AI confidence in analysis")
     generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     ai_powered: bool = Field(default=False, description="Whether AI was used for this insight")
@@ -121,11 +121,11 @@ class AnalyticsResponse(BaseModel):
     time_range: str
     total_alerts: int
     risk_score: float = Field(ge=0.0, le=1.0, default=0.0, description="Overall risk score")
-    alerts: List[Dict[str, Any]] = Field(default_factory=list, description="List of recent alerts")
-    alerts_by_severity: Dict[str, int] = Field(default_factory=dict)
-    alerts_by_type: Dict[str, int] = Field(default_factory=dict)
-    top_threats: List[ThreatInfo] = Field(default_factory=list)
-    trend_data: List[Dict[str, Any]] = Field(default_factory=list)
+    alerts: list[dict[str, Any]] = Field(default_factory=list, description="List of recent alerts")
+    alerts_by_severity: dict[str, int] = Field(default_factory=dict)
+    alerts_by_type: dict[str, int] = Field(default_factory=dict)
+    top_threats: list[ThreatInfo] = Field(default_factory=list)
+    trend_data: list[dict[str, Any]] = Field(default_factory=list)
     ai_insight: Optional[AIInsight] = Field(default=None, description="AI-generated security insight")
     generated_at: datetime
 
@@ -134,8 +134,8 @@ class WebhookAlert(BaseModel):
     bridge_id: str
     timestamp: datetime
     alert_data: AlertRequest
-    evidence: Optional[Dict[str, Any]] = None
-    platform_context: Optional[Dict[str, Any]] = None
+    evidence: Optional[dict[str, Any]] = None
+    platform_context: Optional[dict[str, Any]] = None
 
 # Authentication Models
 class Token(BaseModel):
@@ -147,7 +147,7 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     """Token payload data"""
     username: Optional[str] = None
-    scopes: List[str] = Field(default_factory=list)
+    scopes: list[str] = Field(default_factory=list)
 
 class User(BaseModel):
     """User information"""
@@ -155,7 +155,7 @@ class User(BaseModel):
     email: Optional[str] = None
     full_name: Optional[str] = None
     is_active: bool = True
-    roles: List[str] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list)
 
 # Update forward references
 HealthResponse.model_rebuild()

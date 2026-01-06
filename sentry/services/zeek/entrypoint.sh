@@ -46,8 +46,8 @@ elif [ "$ZEEK_MODE" = "offline" ]; then
 else
     echo "🌐 Live capture mode - attempting network monitoring"
     
-    # Auto-detect interface if not specified
-    if [ -z "$ZEEK_INTERFACE" ]; then
+    # Auto-detect interface if not specified or set to "auto"
+    if [ -z "$ZEEK_INTERFACE" ] || [ "$ZEEK_INTERFACE" = "auto" ]; then
         # Look for first non-loopback interface
         DETECTED=$(ip -o link show | grep -v 'lo:' | grep 'state UP' | head -1 | awk -F': ' '{print $2}')
         
@@ -69,6 +69,7 @@ else
                 
                 # Switch to offline mode instead of failing
                 echo "🔄 Switching to offline mode..."
+                export ZEEK_MODE=offline
                 exec "$0"  # Re-run in offline mode
             fi
         fi
