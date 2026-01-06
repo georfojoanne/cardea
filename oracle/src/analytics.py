@@ -8,11 +8,10 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-import numpy as np
 from openai import AsyncAzureOpenAI
 
 from config import settings
-from database import Alert, ThreatIntelligence, get_db
+from database import Alert, get_db
 from models import AlertSeverity, AlertType, ThreatInfo
 from search_service import ThreatIntelligenceSearch
 

@@ -22,14 +22,13 @@ from contextlib import asynccontextmanager
 import aiofiles
 from fastapi import FastAPI, HTTPException, BackgroundTasks, status, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from fastapi.staticfiles import StaticFiles
 import uvicorn
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 # Import Zeek Notice Monitor
-from zeek_notice_monitor import ZeekNoticeMonitor, get_notice_monitor
+from zeek_notice_monitor import get_notice_monitor
 
 # --- PLATFORM DETECTION LOGIC (PRESERVED) ---
 

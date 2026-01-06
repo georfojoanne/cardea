@@ -6,13 +6,12 @@ SQLAlchemy models for Oracle backend data persistence (Async PostgreSQL optimize
 import logging
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Optional
 
 from sqlalchemy import (
-    Boolean,
     Column,
     DateTime,
     Float,
+    ForeignKey,
     Index,
     Integer,
     JSON,
@@ -20,7 +19,7 @@ from sqlalchemy import (
     Text,
 )
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.orm import DeclarativeBase, relationship
 
 from config import settings
 

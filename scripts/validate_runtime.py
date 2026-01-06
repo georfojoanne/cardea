@@ -5,7 +5,6 @@ Tests if the application can actually run independently
 """
 
 import sys
-import os
 from pathlib import Path
 
 def test_platform_detection():

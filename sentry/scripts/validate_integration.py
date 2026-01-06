@@ -7,6 +7,7 @@ Run with: python scripts/validate_integration.py
 """
 
 import asyncio
+import sys
 import aiohttp
 from pathlib import Path
 from datetime import datetime

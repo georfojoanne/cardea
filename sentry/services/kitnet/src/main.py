@@ -104,7 +104,7 @@ class KitNETService:
         logger.info("🔍 Starting packet anomaly detection...")
         
         processed = 0
-        last_log_time = datetime.now()
+        _last_log_time = datetime.now()  # Reserved for future rate-limited logging
         log_interval = 1000  # Log every N packets
         
         while self.is_running:

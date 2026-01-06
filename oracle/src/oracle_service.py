@@ -6,8 +6,8 @@ Includes Redis-based De-duplication and Rate Limiting
 import hashlib
 import logging
 import os
-from datetime import datetime
-from typing import Any, Optional
+from datetime import datetime, timezone
+from typing import Any
 
 import redis.asyncio as redis
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -227,7 +227,7 @@ def create_app() -> FastAPI:
             
         except Exception as e:
             logger.error(f"Failed to process alert: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e)) from e
 
     @app.get("/api/analytics", response_model=AnalyticsResponse)
     async def get_analytics(time_range: str = "24h"):
@@ -255,7 +255,7 @@ def create_app() -> FastAPI:
             )
         except Exception as e:
             logger.error(f"Analytics Error: {e}")
-            raise HTTPException(status_code=500, detail=str(e))
+            raise HTTPException(status_code=500, detail=str(e)) from e
     
     return app
 
@@ -280,7 +280,7 @@ async def generate_ai_insight(analytics_data: dict[str, Any], threat_analyzer: T
                 "total_alerts": total_alerts,
                 "risk_score": round(risk_score, 3),
                 "severity_breakdown": severity_stats,
-                "recent_alert_types": list(set(a.get("alert_type", "unknown") for a in alerts[:10])),
+                "recent_alert_types": list({a.get("alert_type", "unknown") for a in alerts[:10]}),
                 "critical_alerts": critical_count,
                 "high_alerts": high_count,
             }
@@ -391,7 +391,8 @@ async def process_alert_background(alert_id: int, threat_analyzer: ThreatAnalyze
         async with get_db() as db:
             result = await db.execute(select(Alert).where(Alert.id == alert_id))
             alert = result.scalar_one_or_none()
-            if not alert: return
+            if not alert:
+                return
             
             # --- AI BRAIN WITH TOKEN CAPS ---
             threat_score = 0.4
@@ -467,4 +468,5 @@ async def get_alerts_count() -> int:
         async with get_db() as db:
             result = await db.execute(select(func.count()).select_from(Alert))
             return result.scalar() or 0
-    except Exception: return 0
+    except Exception:
+        return 0
