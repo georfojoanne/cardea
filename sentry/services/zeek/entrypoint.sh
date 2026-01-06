@@ -1,106 +1,92 @@
 #!/bin/bash
 # Zeek service entrypoint script
+# Supports: Live capture, PCAP replay, or offline mode
 
 set -e
 
 echo "🔍 Starting Zeek network analysis service..."
-echo "DEV_MODE: ${DEV_MODE:-not set}"
-echo "ZEEK_INTERFACE: ${ZEEK_INTERFACE:-not set}"
+echo "MODE: ${ZEEK_MODE:-live}"
+echo "INTERFACE: ${ZEEK_INTERFACE:-auto}"
+echo "PCAP_FILE: ${ZEEK_PCAP:-not set}"
 
-# Force development mode for container environments
-if [ "${DEV_MODE:-true}" = "true" ] || [ -f "/.dockerenv" ]; then
-    echo "🔧 Development mode detected - using file-based analysis"
-    
-    # Create output directory
-    mkdir -p /tmp/cardea/zeek
-    
-    # Create a simple health indicator file
-    echo "$(date): Zeek service started in development mode" > /tmp/cardea/zeek/status.log
-    
-    # Create a dummy connection log for health monitoring
-    cat > /tmp/cardea/zeek/conn.log << 'EOF'
-{"ts":"2026-01-03T04:27:00.000000Z","uid":"dev_test_123","id.orig_h":"192.168.1.100","id.orig_p":50001,"id.resp_h":"8.8.8.8","id.resp_p":53,"proto":"udp","service":"dns","duration":0.001,"orig_bytes":35,"resp_bytes":63,"conn_state":"SF","local_orig":true,"local_resp":false,"missed_bytes":0,"history":"Dd","orig_pkts":1,"orig_ip_bytes":63,"resp_pkts":1,"resp_ip_bytes":91}
-EOF
+# Create necessary directories
+mkdir -p /opt/zeek/logs/current /opt/zeek/logs/archive /tmp/cardea/zeek
 
-    echo "✅ Development mode initialized with test data"
+# Determine the running mode
+ZEEK_MODE="${ZEEK_MODE:-live}"
+
+# --- PCAP REPLAY MODE ---
+# Best for development/testing - replays recorded traffic
+if [ "$ZEEK_MODE" = "pcap" ] && [ -f "$ZEEK_PCAP" ]; then
+    echo "📼 PCAP replay mode - processing: $ZEEK_PCAP"
     
-    # Keep container alive with monitoring loop
-    echo "🔄 Starting monitoring loop..."
+    cd /opt/zeek/logs/current
+    /opt/zeek/bin/zeek -r "$ZEEK_PCAP" /opt/zeek/share/zeek/site/local.zeek
+    
+    echo "✅ PCAP processing complete. Logs generated:"
+    ls -la /opt/zeek/logs/current/
+    
+    # Keep container alive for log access
+    echo "🔄 PCAP processing done. Container staying alive for log access..."
+    tail -f /dev/null
+
+# --- OFFLINE/IDLE MODE ---
+# Container is up but not processing - for testing container health only
+elif [ "$ZEEK_MODE" = "offline" ]; then
+    echo "💤 Offline mode - Zeek container ready but not capturing"
+    echo "   Use ZEEK_MODE=live or ZEEK_MODE=pcap to enable analysis"
+    
+    # Create health status file
     while true; do
-        echo "$(date): Zeek monitoring active (development mode)" >> /tmp/cardea/zeek/status.log
-        # Generate periodic dummy connection entries to simulate activity
-        if [ $(($(date +%s) % 60)) -eq 0 ]; then
-            TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%S.%6NZ")
-            echo "{\"ts\":\"$TIMESTAMP\",\"uid\":\"dev_$(date +%s)\",\"id.orig_h\":\"192.168.1.$((RANDOM % 254 + 1))\",\"id.orig_p\":$((RANDOM % 65535 + 1)),\"id.resp_h\":\"8.8.8.8\",\"id.resp_p\":53,\"proto\":\"udp\",\"service\":\"dns\",\"duration\":0.001,\"orig_bytes\":35,\"resp_bytes\":63,\"conn_state\":\"SF\"}" >> /tmp/cardea/zeek/conn.log
-        fi
-        sleep 5
+        echo "$(date): Zeek idle - ready to start" > /tmp/cardea/zeek/status.log
+        sleep 30
     done
-else
-    echo "🌐 Production mode - attempting live capture"
-    AVAILABLE_INTERFACES=$(ip link show | grep -E '^[0-9]+: ' | grep -v 'lo:' | head -1 | cut -d: -f2 | tr -d ' ')
 
+# --- LIVE CAPTURE MODE (default) ---
+else
+    echo "🌐 Live capture mode - attempting network monitoring"
+    
+    # Auto-detect interface if not specified
     if [ -z "$ZEEK_INTERFACE" ]; then
-        if [ -n "$AVAILABLE_INTERFACES" ]; then
-            export ZEEK_INTERFACE=$AVAILABLE_INTERFACES
+        # Look for first non-loopback interface
+        DETECTED=$(ip -o link show | grep -v 'lo:' | grep 'state UP' | head -1 | awk -F': ' '{print $2}')
+        
+        if [ -n "$DETECTED" ]; then
+            export ZEEK_INTERFACE="$DETECTED"
             echo "✅ Auto-detected interface: $ZEEK_INTERFACE"
         else
-            echo "⚠️  No network interfaces detected, using lo (loopback) for testing"
-            export ZEEK_INTERFACE=lo
+            # Fallback: any interface that's not loopback
+            DETECTED=$(ip -o link show | grep -v 'lo:' | head -1 | awk -F': ' '{print $2}')
+            if [ -n "$DETECTED" ]; then
+                export ZEEK_INTERFACE="$DETECTED"
+                echo "⚠️  Using first available interface: $ZEEK_INTERFACE"
+            else
+                echo "❌ No network interfaces found"
+                echo "💡 Options:"
+                echo "   1. Run container with --network=host"
+                echo "   2. Use ZEEK_MODE=pcap with ZEEK_PCAP=/path/to/file.pcap"
+                echo "   3. Use ZEEK_MODE=offline for testing"
+                
+                # Switch to offline mode instead of failing
+                echo "🔄 Switching to offline mode..."
+                exec "$0"  # Re-run in offline mode
+            fi
         fi
-    else
-        echo "📡 Using configured interface: $ZEEK_INTERFACE"
     fi
-
-    # Check if interface exists
-    if ! ip link show $ZEEK_INTERFACE >/dev/null 2>&1; then
-        echo "❌ Interface $ZEEK_INTERFACE not found, switching to loopback for dev mode"
-        export ZEEK_INTERFACE=lo
+    
+    # Verify interface exists and is accessible
+    if ! ip link show "$ZEEK_INTERFACE" >/dev/null 2>&1; then
+        echo "❌ Interface $ZEEK_INTERFACE not found"
+        exit 1
     fi
-
-    # Create necessary directories
-    mkdir -p /opt/zeek/logs/current
-
-    # Generate node configuration if not exists
-    if [ ! -f "/opt/zeek/etc/node.cfg" ]; then
-        echo "📝 Generating node configuration..."
-        cat > /opt/zeek/etc/node.cfg << EOF
-[manager]
-type=manager
-host=localhost
-
-[logger]
-type=logger
-host=localhost
-
-[worker-1]
-type=worker
-host=localhost
-interface=$ZEEK_INTERFACE
-EOF
-    fi
-
-    # Create basic site configuration
-    if [ ! -f "/opt/zeek/share/zeek/site/local.zeek" ]; then
-        mkdir -p /opt/zeek/share/zeek/site
-        cat > /opt/zeek/share/zeek/site/local.zeek << EOF
-# Basic Zeek configuration
-@load base/frameworks/cluster
-@load base/frameworks/logging
-@load base/protocols/conn
-@load base/protocols/http
-@load base/protocols/dns
-
-# Enable JSON logging
-redef LogAscii::output_to_file = T;
-redef LogAscii::json_timestamps = JSON::TS_ISO8601;
-redef LogAscii::use_json = T;
-EOF
-    fi
-
-    echo "✅ Zeek configuration complete"
-    echo "🌐 Monitoring interface: $ZEEK_INTERFACE"
-
-    # Start Zeek in standalone mode (more reliable for containers)
-    exec /opt/zeek/bin/zeek -i $ZEEK_INTERFACE /opt/zeek/share/zeek/site/local.zeek
-
+    
+    echo "📡 Interface: $ZEEK_INTERFACE"
+    echo "📂 Logs: /opt/zeek/logs/current"
+    
+    # Set working directory for log output
+    cd /opt/zeek/logs/current
+    
+    # Start Zeek in standalone mode with full local.zeek config
+    echo "🚀 Starting Zeek..."
+    exec /opt/zeek/bin/zeek -i "$ZEEK_INTERFACE" /opt/zeek/share/zeek/site/local.zeek
 fi

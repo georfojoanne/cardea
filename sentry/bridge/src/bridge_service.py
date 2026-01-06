@@ -2,6 +2,11 @@
 """
 Cardea Bridge Service - Service Orchestration and API Gateway
 Optimized for X230-ARCH with Dynamic Asset Discovery
+
+Now includes:
+- Multi-source alert aggregation (KitNET, Suricata, Zeek notices)
+- Zeek notice.log monitoring for behavioral detection
+- Real-time network discovery from Zeek logs
 """
 
 import asyncio
@@ -24,6 +29,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 from pydantic import BaseModel, Field
+
+# Import Zeek Notice Monitor
+from zeek_notice_monitor import ZeekNoticeMonitor, get_notice_monitor
 
 # --- PLATFORM DETECTION LOGIC (PRESERVED) ---
 
@@ -248,12 +256,51 @@ class BridgeService:
 
 bridge_service = BridgeService()
 
+# --- ZEEK NOTICE INTEGRATION ---
+
+async def handle_zeek_notice_alert(alert_data: Dict[str, Any]):
+    """Callback for Zeek notice monitor - injects notices as alerts."""
+    try:
+        req = AlertRequest(
+            source=alert_data['source'],
+            severity=alert_data['severity'],
+            event_type=alert_data['event_type'],
+            description=alert_data['description'],
+            raw_data=alert_data['raw_data'],
+            confidence=alert_data.get('confidence', 0.9),
+        )
+        alert = bridge_service.add_alert(req)
+        
+        # Auto-escalate high/critical Zeek notices to Oracle
+        if alert_data['severity'] in ('high', 'critical'):
+            await escalate_to_oracle(alert_data)
+            
+        logger.info(f"🔔 Zeek notice ingested: {alert.id} ({alert_data['severity']})")
+    except Exception as e:
+        logger.error(f"Failed to process Zeek notice: {e}")
+
+# Initialize Zeek notice monitor with callback
+zeek_notice_monitor = get_notice_monitor(handle_zeek_notice_alert)
+
 # --- FASTAPI APP & UI ROUTES ---
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("🌉 Bridge Service Online [X230-ARCH]")
+    
+    # Start Zeek notice monitoring in background
+    notice_task = asyncio.create_task(zeek_notice_monitor.start())
+    logger.info("🔔 Zeek Notice Monitor started")
+    
     yield
+    
+    # Cleanup
+    await zeek_notice_monitor.stop()
+    notice_task.cancel()
+    try:
+        await notice_task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(lifespan=lifespan)
 templates = Jinja2Templates(directory="src/templates")
@@ -312,6 +359,19 @@ async def get_alerts(limit: int = 100):
 @app.get("/api/local-stats")
 async def get_local_stats():
     return bridge_service.local_stats
+
+@app.get("/api/zeek-notices")
+async def get_zeek_notice_stats():
+    """Returns Zeek notice monitoring statistics and recent notices"""
+    stats = zeek_notice_monitor.get_stats()
+    return {
+        "status": "active" if zeek_notice_monitor.running else "stopped",
+        "total_processed": stats["notices_processed"],
+        "by_type": stats["by_type"],
+        "by_severity": stats["by_severity"],
+        "mitre_coverage": len([k for k, v in stats["by_type"].items() if v > 0]),
+        "last_check": datetime.now().isoformat()
+    }
 
 if __name__ == "__main__":
     port = int(os.getenv("BRIDGE_PORT", "8001"))
