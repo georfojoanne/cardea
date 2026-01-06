@@ -1,21 +1,35 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Shield, Activity, Zap, Server, AlertCircle } from 'lucide-react';
+import { Shield, Activity, Zap, Server, AlertCircle, AlertTriangle, Info, XCircle } from 'lucide-react';
 import type { AnalyticsResponse, Alert } from './types'; 
 import { NetworkMap } from './components/NetworkMap';
 
-const ORACLE_URL = "http://localhost:8000";
+// Use environment variable or default to localhost for development
+const ORACLE_URL = import.meta.env.VITE_ORACLE_URL || "http://localhost:8000";
+
+// Severity color/icon mapping
+const severityConfig = {
+  critical: { color: 'text-red-500', bg: 'bg-red-950/20 border-red-900/50', icon: XCircle },
+  high: { color: 'text-orange-500', bg: 'bg-orange-950/20 border-orange-900/50', icon: AlertTriangle },
+  medium: { color: 'text-yellow-500', bg: 'bg-yellow-950/20 border-yellow-900/50', icon: AlertCircle },
+  low: { color: 'text-cyan-500', bg: 'bg-cyan-950/20 border-cyan-900/50', icon: Info },
+};
 
 const App: React.FC = () => {
   const [data, setData] = useState<AnalyticsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const res = await axios.get<AnalyticsResponse>(`${ORACLE_URL}/api/analytics`);
         setData(res.data);
+        setError(null);
+        setLastUpdate(new Date());
       } catch (err) {
         console.error("Oracle API Error:", err);
+        setError("Failed to connect to Oracle backend");
       }
     };
 
@@ -27,11 +41,26 @@ const App: React.FC = () => {
   if (!data) return (
     <div className="flex items-center justify-center h-screen bg-slate-950 text-slate-600 font-mono text-sm tracking-tighter">
       <div className="flex flex-col items-center gap-4">
-        <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
-        INITIALIZING CARDEA ORACLE CONNECTION...
+        {error ? (
+          <>
+            <XCircle className="w-8 h-8 text-red-500" />
+            <span className="text-red-500">{error}</span>
+            <span className="text-slate-700 text-xs">Retrying connection...</span>
+          </>
+        ) : (
+          <>
+            <div className="w-5 h-5 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />
+            INITIALIZING CARDEA ORACLE CONNECTION...
+          </>
+        )}
       </div>
     </div>
   );
+
+  // Calculate severity stats for display
+  const severityStats = data.alerts_by_severity || {};
+  const criticalCount = severityStats['critical'] || 0;
+  const highCount = severityStats['high'] || 0;
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200 font-sans selection:bg-cyan-500/30">
@@ -44,14 +73,21 @@ const App: React.FC = () => {
             </span>
           </div>
           <div className="flex items-center gap-6 text-[10px] font-bold text-slate-500 tracking-widest uppercase">
+            {(criticalCount > 0 || highCount > 0) && (
+              <span className="flex items-center gap-1.5 text-red-500">
+                <AlertTriangle className="w-3 h-3" />
+                {criticalCount + highCount} Critical/High Alerts
+              </span>
+            )}
             <span className="flex items-center gap-1.5">
               <div className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> 
               Cloud Link: Verified
             </span>
-            <span className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-cyan-500" /> 
-              Node: X230-ARCH
-            </span>
+            {lastUpdate && (
+              <span className="text-slate-600">
+                Updated: {lastUpdate.toLocaleTimeString([], { hour12: false })}
+              </span>
+            )}
           </div>
         </div>
       </header>

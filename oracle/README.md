@@ -63,7 +63,25 @@ python src/main.py
 docker-compose up
 ```
 
-### 5. Test AI Features
+### 5. Database Migrations
+```bash
+# Navigate to oracle directory
+cd oracle
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Create a new migration (after schema changes)
+alembic revision --autogenerate -m "description of changes"
+
+# Rollback last migration
+alembic downgrade -1
+
+# View current migration status
+alembic current
+```
+
+### 6. Test AI Features
 ```bash
 # Run AI analytics tests
 pytest tests/test_analytics_ai.py -v
@@ -71,8 +89,8 @@ pytest tests/test_analytics_ai.py -v
 # Run Search integration tests
 pytest tests/test_search_service.py -v
 
-# Test health endpoint
-curl http://localhost:8000/health
+# Test health endpoint (now includes Azure AI status)
+curl http://localhost:8000/health | jq
 ```
 
 ## Components
@@ -82,22 +100,18 @@ curl http://localhost:8000/health
 - `src/database.py` - PostgreSQL models and connections
 - `src/models.py` - Pydantic request/response schemas
 - `src/config.py` - Environment-based configuration
+- `migrations/` - **📦 Alembic database migrations**
 
 ## API Endpoints
 
 ### Core Endpoints
-- `POST /api/v1/alerts` - Receive alerts from Sentry
-- `POST /api/v1/analyze/threats` - AI threat analysis
-- `GET /api/v1/analytics` - Dashboard analytics
-- `GET /health` - Service health check
+- `POST /api/alerts` - Receive alerts from Sentry
+- `GET /api/analytics` - Dashboard analytics with alerts and risk score
+- `GET /health` - **Enhanced** service health check (DB, Redis, Azure AI)
 
-### Example: AI Threat Analysis
+### Example: Get Analytics
 ```bash
-curl -X POST http://localhost:8000/api/v1/analyze/threats \
-  -H "Content-Type: application/json" \
-  -d '{
-    "time_window": 3600,
-    "threat_types": ["data_exfiltration"],
+curl http://localhost:8000/api/analytics?time_range=24h | jq
     "include_correlations": true
   }'
 ```

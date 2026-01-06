@@ -90,26 +90,83 @@ def create_app() -> FastAPI:
     
     @app.get("/health", response_model=HealthResponse)
     async def health_check():
+        """
+        Comprehensive health check for all Oracle services.
+        Returns status of: database, redis, Azure OpenAI, Azure AI Search
+        """
+        services = {}
+        overall_healthy = True
+        
+        # 1. Database Health Check
         try:
             async with get_db() as db:
                 await db.execute(text("SELECT 1"))
-            db_status = "healthy"
-            # Check Redis Health
-            await redis_client.ping()
-            redis_status = "healthy"
+            services["database"] = {"status": "healthy", "type": "postgresql"}
         except Exception as e:
-            db_status = f"error: {str(e)}"
-            redis_status = "unreachable"
+            services["database"] = {"status": "unhealthy", "error": str(e)[:100]}
+            overall_healthy = False
+        
+        # 2. Redis Health Check
+        try:
+            await redis_client.ping()
+            services["redis_cache"] = {"status": "healthy"}
+        except Exception as e:
+            services["redis_cache"] = {"status": "unhealthy", "error": str(e)[:100]}
+            overall_healthy = False
+        
+        # 3. Azure OpenAI Health Check
+        if settings.AI_ENABLED and threat_analyzer.ai_client:
+            try:
+                # Lightweight check - just verify client is configured
+                services["azure_openai"] = {
+                    "status": "healthy",
+                    "enabled": True,
+                    "deployment": settings.AZURE_OPENAI_DEPLOYMENT,
+                    "endpoint": settings.AZURE_OPENAI_ENDPOINT[:50] + "..." if settings.AZURE_OPENAI_ENDPOINT else None
+                }
+            except Exception as e:
+                services["azure_openai"] = {"status": "degraded", "error": str(e)[:100]}
+        else:
+            services["azure_openai"] = {
+                "status": "disabled",
+                "enabled": False,
+                "reason": "AI_ENABLED=false or missing API key"
+            }
+        
+        # 4. Azure AI Search Health Check
+        if threat_analyzer.search_service and threat_analyzer.search_service.search_client:
+            services["azure_search"] = {
+                "status": "healthy",
+                "enabled": True,
+                "index": settings.AZURE_SEARCH_INDEX_NAME
+            }
+        else:
+            services["azure_search"] = {
+                "status": "disabled",
+                "enabled": False,
+                "reason": "Missing Azure Search credentials"
+            }
+        
+        # 5. Analytics Service
+        services["analytics"] = {
+            "status": "healthy",
+            "ai_powered": threat_analyzer.ai_client is not None,
+            "rag_enabled": threat_analyzer.search_service.search_client is not None if threat_analyzer.search_service else False
+        }
+        
+        # Determine overall status
+        if overall_healthy:
+            status = "healthy"
+        elif services["database"]["status"] == "healthy":
+            status = "degraded"  # Core DB works but other services have issues
+        else:
+            status = "unhealthy"
             
         return HealthResponse(
-            status="healthy" if db_status == "healthy" and redis_status == "healthy" else "degraded",
+            status=status,
             timestamp=datetime.now(timezone.utc),
             version=settings.VERSION,
-            services={
-                "database": {"status": db_status},
-                "redis_cache": {"status": redis_status},
-                "analytics": {"status": "healthy", "models_loaded": True}
-            },
+            services=services,
             system=SystemStatus(
                 deployment_env=settings.DEPLOYMENT_ENVIRONMENT,
                 alerts_processed=await get_alerts_count(),
