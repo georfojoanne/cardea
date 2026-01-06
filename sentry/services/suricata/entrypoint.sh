@@ -1,102 +1,164 @@
 #!/bin/bash
 # Suricata service entrypoint script
+# Supports: Live capture, PCAP replay, or offline mode
 
 set -e
 
 echo "🛡️ Starting Suricata intrusion detection service..."
+echo "MODE: ${SURICATA_MODE:-live}"
+echo "INTERFACE: ${SURICATA_INTERFACE:-auto}"
+echo "PCAP_FILE: ${SURICATA_PCAP:-not set}"
 
-# Auto-detect available network interface for dev containers
-AVAILABLE_INTERFACES=$(ip link show | grep -E '^[0-9]+: ' | grep -v 'lo:' | head -1 | cut -d: -f2 | tr -d ' ')
+# Create necessary directories
+mkdir -p /var/log/suricata /var/lib/suricata/rules /etc/suricata
 
-if [ -z "$SURICATA_INTERFACE" ]; then
-    if [ -n "$AVAILABLE_INTERFACES" ]; then
-        export SURICATA_INTERFACE=$AVAILABLE_INTERFACES
-        echo "✅ Auto-detected interface: $SURICATA_INTERFACE"
-    else
-        echo "⚠️  No network interfaces detected, using lo (loopback) for testing"
-        export SURICATA_INTERFACE=lo
-    fi
-else
-    echo "📡 Using configured interface: $SURICATA_INTERFACE"
+# Determine the running mode
+SURICATA_MODE="${SURICATA_MODE:-live}"
+
+# --- SETUP CONFIGURATION ---
+# Use our custom config if available, otherwise copy system default
+if [ -f "/etc/suricata/custom/suricata.yaml" ]; then
+    echo "📋 Using custom Cardea configuration"
+    cp /etc/suricata/custom/suricata.yaml /etc/suricata/suricata.yaml
+elif [ ! -f "/etc/suricata/suricata.yaml" ]; then
+    echo "📋 Using system default configuration"
+    # Suricata should have a default config from apt install
 fi
 
-# Check if interface exists
-if ! ip link show $SURICATA_INTERFACE >/dev/null 2>&1; then
-    echo "❌ Interface $SURICATA_INTERFACE not found, switching to loopback for dev mode"
-    export SURICATA_INTERFACE=lo
+# Copy custom rules if available
+if [ -d "/etc/suricata/custom/rules" ]; then
+    echo "📋 Loading custom rules..."
+    cp -r /etc/suricata/custom/rules/* /var/lib/suricata/rules/ 2>/dev/null || true
 fi
 
-# Update rule sets
+# Copy threshold config if available
+if [ -f "/etc/suricata/custom/threshold.config" ]; then
+    echo "📋 Loading threshold configuration..."
+    cp /etc/suricata/custom/threshold.config /etc/suricata/threshold.config
+fi
+
+# --- UPDATE RULES ---
 echo "📡 Updating Suricata rule sets..."
-suricata-update || echo "⚠️ Rule update failed, continuing with existing rules"
+suricata-update --no-test || echo "⚠️ Rule update failed, continuing with existing rules"
 
-# Configure output
-cat > /etc/suricata/suricata.yaml << EOF
-%YAML 1.1
----
+# Ensure local.rules is loaded if it exists
+if [ -f "/var/lib/suricata/rules/local.rules" ]; then
+    echo "📋 Custom local.rules found and will be loaded"
+fi
 
-vars:
-  address-groups:
-    HOME_NET: "[192.168.0.0/16,10.0.0.0/8,172.16.0.0/12]"
-    EXTERNAL_NET: "!$HOME_NET"
+# --- PCAP REPLAY MODE ---
+if [ "$SURICATA_MODE" = "pcap" ] && [ -f "$SURICATA_PCAP" ]; then
+    echo "📼 PCAP replay mode - processing: $SURICATA_PCAP"
+    
+    # Start log processor in background
+    python3 /app/scripts/log_processor.py &
+    LOG_PROCESSOR_PID=$!
+    
+    # Run Suricata on PCAP
+    suricata -c /etc/suricata/suricata.yaml -r "$SURICATA_PCAP" -l /var/log/suricata
+    
+    echo "✅ PCAP processing complete. Logs generated:"
+    ls -la /var/log/suricata/
+    
+    # Give log processor time to finish
+    sleep 5
+    
+    # Keep container alive for log access
+    echo "🔄 PCAP processing done. Container staying alive for log access..."
+    tail -f /dev/null
 
-outputs:
-  - fast:
-      enabled: yes
-      filename: fast.log
-  - eve-log:
-      enabled: yes
-      filetype: regular
-      filename: eve.json
-      types:
-        - alert:
-            payload: yes
-            payload-buffer-size: 4kb
-        - http:
-            extended: yes
-        - dns
-        - tls:
-            extended: yes
-        - files:
-            force-magic: no
-        - smtp
-        - flow
+# --- OFFLINE/IDLE MODE ---
+elif [ "$SURICATA_MODE" = "offline" ]; then
+    echo "💤 Offline mode - Suricata container ready but not capturing"
+    echo "   Use SURICATA_MODE=live or SURICATA_MODE=pcap to enable detection"
+    
+    # Create health status file
+    while true; do
+        echo "$(date): Suricata idle - ready to start" > /var/log/suricata/status.log
+        sleep 30
+    done
 
-af-packet:
-  - interface: $SURICATA_INTERFACE
-    cluster-id: 99
-    cluster-type: cluster_flow
-    defrag: yes
-    use-mmap: yes
-
-# Rule sets
-default-rule-path: /var/lib/suricata/rules
-rule-files:
-  - suricata.rules
-
-# Detection engine
-detect:
-  profile: medium
-  custom-values:
-    toclient-groups: 3
-    toserver-groups: 25
-
-# Logging
-logging:
-  default-log-level: $LOG_LEVEL
-  outputs:
-  - console:
-      enabled: yes
-  - file:
-      enabled: yes
-      filename: /var/log/suricata/suricata.log
-EOF
-
-# Start log processor in background
-python3 /app/scripts/log_processor.py &
-
-echo "✅ Suricata configuration complete"
-echo "🌐 Monitoring interface: $SURICATA_INTERFACE"
-
-# Start Suricata
-exec suricata -c /etc/suricata/suricata.yaml -i $SURICATA_INTERFACE --pidfile /var/run/suricata.pid
+# --- LIVE CAPTURE MODE (default) ---
+else
+    echo "🌐 Live capture mode - starting intrusion detection"
+    
+    # Auto-detect interface if not specified
+    if [ -z "$SURICATA_INTERFACE" ] || [ "$SURICATA_INTERFACE" = "auto" ]; then
+        # Look for first non-loopback interface that's UP
+        DETECTED=$(ip -o link show | grep -v 'lo:' | grep 'state UP' | head -1 | awk -F': ' '{print $2}')
+        
+        if [ -n "$DETECTED" ]; then
+            export SURICATA_INTERFACE="$DETECTED"
+            echo "✅ Auto-detected interface: $SURICATA_INTERFACE"
+        else
+            # Fallback: any interface that's not loopback
+            DETECTED=$(ip -o link show | grep -v 'lo:' | head -1 | awk -F': ' '{print $2}')
+            if [ -n "$DETECTED" ]; then
+                export SURICATA_INTERFACE="$DETECTED"
+                echo "⚠️ Using first available interface: $SURICATA_INTERFACE"
+            else
+                echo "❌ No network interfaces found"
+                echo "💡 Options:"
+                echo "   1. Run container with --network=host"
+                echo "   2. Use SURICATA_MODE=pcap with SURICATA_PCAP=/path/to/file.pcap"
+                echo "   3. Use SURICATA_MODE=offline for testing"
+                
+                # Switch to offline mode
+                export SURICATA_MODE="offline"
+                exec "$0"
+            fi
+        fi
+    fi
+    
+    # Verify interface exists
+    if ! ip link show "$SURICATA_INTERFACE" >/dev/null 2>&1; then
+        echo "❌ Interface $SURICATA_INTERFACE not found"
+        echo "   Available interfaces:"
+        ip -o link show | awk -F': ' '{print "   - " $2}'
+        exit 1
+    fi
+    
+    echo "📡 Interface: $SURICATA_INTERFACE"
+    echo "📂 Logs: /var/log/suricata"
+    echo "📋 Config: /etc/suricata/suricata.yaml"
+    
+    # Update config with correct interface
+    if [ -f "/etc/suricata/suricata.yaml" ]; then
+        sed -i "s/interface: default/interface: $SURICATA_INTERFACE/g" /etc/suricata/suricata.yaml
+    fi
+    
+    # Start log processor in background
+    echo "🔄 Starting EVE log processor..."
+    python3 /app/scripts/log_processor.py &
+    LOG_PROCESSOR_PID=$!
+    
+    echo "🚀 Starting Suricata..."
+    
+    # Run Suricata with AF_PACKET (high performance)
+    exec suricata -c /etc/suricata/suricata.yaml --af-packet="$SURICATA_INTERFACE" \
+        --pidfile /var/run/suricata.pid \
+        -D -vvv 2>&1 | tee -a /var/log/suricata/suricata.log &
+    
+    SURICATA_PID=$!
+    
+    # Wait for Suricata to start
+    sleep 3
+    
+    if pgrep -f "suricata" > /dev/null; then
+        echo "✅ Suricata running (PID: $SURICATA_PID)"
+        echo "✅ Log processor running (PID: $LOG_PROCESSOR_PID)"
+    else
+        echo "❌ Suricata failed to start"
+        cat /var/log/suricata/suricata.log
+        exit 1
+    fi
+    
+    # Keep container running and monitor
+    while true; do
+        if ! pgrep -f "suricata" > /dev/null; then
+            echo "⚠️ Suricata process died, restarting..."
+            exec "$0"
+        fi
+        sleep 30
+    done
+fi

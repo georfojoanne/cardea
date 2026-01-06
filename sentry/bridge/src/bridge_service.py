@@ -125,6 +125,36 @@ class AlertRequest(BaseModel):
     raw_data: Dict[str, Any]
     confidence: float = 0.0
 
+class SuricataAlertRequest(BaseModel):
+    """Suricata-specific alert format from EVE JSON"""
+    source: str = "suricata"
+    timestamp: Optional[str] = None
+    alert: Dict[str, Any]  # signature, category, severity, signature_id
+    network: Dict[str, Any]  # src_ip, dest_ip, src_port, dest_port, protocol
+    flow_id: Optional[int] = None
+    
+    # Optional extended fields
+    http: Optional[Dict[str, Any]] = None
+    dns: Optional[Dict[str, Any]] = None
+    tls: Optional[Dict[str, Any]] = None
+    fileinfo: Optional[Dict[str, Any]] = None
+
+# MITRE ATT&CK mapping for common Suricata rule categories
+SURICATA_CATEGORY_TO_MITRE = {
+    "A Network Trojan was detected": "T1071",  # Application Layer Protocol
+    "Malware Command and Control Activity Detected": "T1071",
+    "Attempted Administrator Privilege Gain": "T1068",  # Exploitation for Privilege Escalation
+    "Attempted User Privilege Gain": "T1068",
+    "Potential Corporate Privacy Violation": "T1041",  # Exfiltration Over C2 Channel
+    "Web Application Attack": "T1190",  # Exploit Public-Facing Application
+    "Exploit Kit Activity Detected": "T1189",  # Drive-by Compromise
+    "A suspicious filename was detected": "T1204",  # User Execution
+    "Potentially Bad Traffic": "T1571",  # Non-Standard Port
+    "Misc activity": "T1071",
+    "Not Suspicious Traffic": None,  # No MITRE mapping
+    "Unknown Traffic": None,
+}
+
 class HealthResponse(BaseModel):
     status: str
     timestamp: str
@@ -169,6 +199,15 @@ class BridgeService:
             "packets_sec": 0,
             "escalations": 0,
             "start_time": datetime.now()
+        }
+        
+        # Suricata-specific statistics
+        self.suricata_stats = {
+            "alerts_received": 0,
+            "by_severity": {"critical": 0, "high": 0, "medium": 0, "low": 0},
+            "by_category": {},
+            "recent_signatures": [],  # Last 20 unique signatures
+            "mitre_techniques": {},   # Count by MITRE technique
         }
 
         self.data_paths = {
@@ -339,6 +378,113 @@ async def submit_alert(alert_request: AlertRequest, background_tasks: Background
     except Exception as e:
         logger.error(f"Alert injection failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/v1/alerts/suricata", status_code=status.HTTP_201_CREATED)
+async def submit_suricata_alert(alert_request: SuricataAlertRequest, background_tasks: BackgroundTasks):
+    """
+    Dedicated endpoint for Suricata EVE JSON alerts.
+    Handles Suricata's native format with MITRE ATT&CK enrichment.
+    """
+    try:
+        alert_info = alert_request.alert
+        network_info = alert_request.network
+        
+        # Map Suricata severity (1=high, 2=medium, 3=low) to our format
+        suri_severity = alert_info.get("severity", 3)
+        severity_map = {1: "critical", 2: "high", 3: "medium", 4: "low"}
+        severity = severity_map.get(suri_severity, "medium")
+        
+        # Extract MITRE technique from category
+        category = alert_info.get("category", "Unknown")
+        mitre_technique = SURICATA_CATEGORY_TO_MITRE.get(category)
+        
+        # Build description with context
+        signature = alert_info.get("signature", "Unknown signature")
+        src_ip = network_info.get("src_ip", "unknown")
+        dest_ip = network_info.get("dest_ip", "unknown")
+        dest_port = network_info.get("dest_port", "")
+        protocol = network_info.get("protocol", "TCP")
+        
+        description = f"{signature} | {src_ip} → {dest_ip}:{dest_port} ({protocol})"
+        if mitre_technique:
+            description += f" [MITRE: {mitre_technique}]"
+        
+        # Build raw_data with all available context
+        raw_data = {
+            "signature_id": alert_info.get("signature_id"),
+            "signature": signature,
+            "category": category,
+            "src_ip": src_ip,
+            "dest_ip": dest_ip,
+            "src_port": network_info.get("src_port"),
+            "dest_port": dest_port,
+            "protocol": protocol,
+            "flow_id": alert_request.flow_id,
+            "mitre_technique": mitre_technique,
+        }
+        
+        # Add protocol-specific context if available
+        if alert_request.http:
+            raw_data["http"] = alert_request.http
+        if alert_request.dns:
+            raw_data["dns"] = alert_request.dns
+        if alert_request.tls:
+            raw_data["tls"] = alert_request.tls
+        if alert_request.fileinfo:
+            raw_data["fileinfo"] = alert_request.fileinfo
+        
+        # Create normalized alert
+        normalized = AlertRequest(
+            source="suricata",
+            severity=severity,
+            event_type="ids_alert",
+            description=description,
+            raw_data=raw_data,
+            confidence=0.95 if suri_severity <= 2 else 0.7
+        )
+        
+        alert = bridge_service.add_alert(normalized)
+        
+        # Update Suricata stats
+        bridge_service.suricata_stats["alerts_received"] += 1
+        bridge_service.suricata_stats["by_severity"][severity] = \
+            bridge_service.suricata_stats["by_severity"].get(severity, 0) + 1
+        bridge_service.suricata_stats["by_category"][category] = \
+            bridge_service.suricata_stats["by_category"].get(category, 0) + 1
+        
+        if mitre_technique:
+            bridge_service.suricata_stats["mitre_techniques"][mitre_technique] = \
+                bridge_service.suricata_stats["mitre_techniques"].get(mitre_technique, 0) + 1
+        
+        # Track recent signatures (keep last 20 unique)
+        if signature not in bridge_service.suricata_stats["recent_signatures"]:
+            bridge_service.suricata_stats["recent_signatures"].append(signature)
+            if len(bridge_service.suricata_stats["recent_signatures"]) > 20:
+                bridge_service.suricata_stats["recent_signatures"].pop(0)
+        
+        # Auto-escalate high/critical to Oracle
+        if severity in ("critical", "high"):
+            background_tasks.add_task(escalate_to_oracle, normalized.model_dump())
+        
+        logger.info(f"🛡️ Suricata alert: {signature[:50]}... [{severity}]")
+        return {"status": "accepted", "alert_id": alert.id, "mitre": mitre_technique}
+        
+    except Exception as e:
+        logger.error(f"Suricata alert processing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/suricata-stats")
+async def get_suricata_stats():
+    """Returns Suricata alert statistics and MITRE coverage"""
+    stats = bridge_service.suricata_stats
+    return {
+        "total_alerts": stats["alerts_received"],
+        "by_severity": stats["by_severity"],
+        "by_category": stats["by_category"],
+        "mitre_techniques": stats["mitre_techniques"],
+        "recent_signatures": stats["recent_signatures"],
+        "last_check": datetime.now().isoformat()
+    }
 
 @app.get("/api/discovery")
 async def discovery_endpoint():

@@ -7,35 +7,41 @@ ARG DEBIAN_FRONTEND=noninteractive
 # Install dependencies
 RUN apt-get update && apt-get install -y \
     suricata \
+    suricata-update \
     curl \
+    iproute2 \
     python3 \
     python3-pip \
     jq \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Create directories
-RUN mkdir -p /var/log/suricata /etc/suricata/custom /app/scripts
+RUN mkdir -p /var/log/suricata /var/lib/suricata/rules \
+    /etc/suricata/custom /etc/suricata/custom/rules /app/scripts
 
-# Create suricata user properly
-RUN groupadd -r suricata && useradd -r -g suricata -s /bin/false suricata
-
-# Copy configuration
-COPY config/ /etc/suricata/custom/
+# Copy configuration files
+COPY config/suricata.yaml /etc/suricata/custom/
+COPY config/threshold.config /etc/suricata/custom/
+COPY config/rules/ /etc/suricata/custom/rules/
 COPY scripts/ /app/scripts/
 
 # Set permissions
-RUN chown -R suricata:suricata /var/log/suricata /etc/suricata/custom
+RUN chmod +x /app/scripts/*.py
 
 # Install Python dependencies for log processing
 RUN pip3 install pyyaml requests
 
 # Environment variables
-ENV SURICATA_INTERFACE=eth0
+ENV SURICATA_INTERFACE=auto
+ENV SURICATA_MODE=live
 ENV LOG_LEVEL=info
+ENV BRIDGE_HOST=localhost
+ENV BRIDGE_PORT=8001
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD pgrep -f suricata || exit 1
+# Health check using our enhanced script
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD python3 /app/scripts/health_check.py || exit 1
 
 # Startup script
 COPY entrypoint.sh /entrypoint.sh

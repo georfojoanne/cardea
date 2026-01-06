@@ -1,0 +1,174 @@
+# =============================================================================
+# Cardea Custom Suricata Rules
+# =============================================================================
+# These rules complement the Emerging Threats ruleset with environment-specific
+# detection. Add rules here that are relevant to your network.
+#
+# Rule Format:
+# action proto src_ip src_port -> dest_ip dest_port (options)
+#
+# Severity: 1 = Critical, 2 = High, 3 = Medium, 4 = Low
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Internal Network Reconnaissance Detection
+# -----------------------------------------------------------------------------
+
+# Detect internal port scanning (high rate of SYN to different ports)
+alert tcp $HOME_NET any -> $HOME_NET any (msg:"CARDEA Internal Port Scan Detected"; \
+    flags:S; threshold:type both, track by_src, count 50, seconds 10; \
+    classtype:attempted-recon; sid:9000001; rev:1; \
+    metadata:mitre_attack_tactic TA0007, mitre_attack_technique T1046;)
+
+# Detect ICMP ping sweep
+alert icmp $HOME_NET any -> $HOME_NET any (msg:"CARDEA ICMP Ping Sweep Detected"; \
+    itype:8; threshold:type both, track by_src, count 20, seconds 5; \
+    classtype:attempted-recon; sid:9000002; rev:1; \
+    metadata:mitre_attack_tactic TA0007, mitre_attack_technique T1018;)
+
+# -----------------------------------------------------------------------------
+# Lateral Movement Detection
+# -----------------------------------------------------------------------------
+
+# SMB connection from unexpected source
+alert tcp $HOME_NET any -> $HOME_NET 445 (msg:"CARDEA SMB Connection to Non-Server"; \
+    flow:to_server,established; \
+    classtype:policy-violation; sid:9000010; rev:1; \
+    metadata:mitre_attack_tactic TA0008, mitre_attack_technique T1021.002;)
+
+# RDP from non-admin workstation
+alert tcp $HOME_NET any -> $HOME_NET 3389 (msg:"CARDEA RDP Connection Detected"; \
+    flow:to_server,established; \
+    classtype:policy-violation; sid:9000011; rev:1; \
+    metadata:mitre_attack_tactic TA0008, mitre_attack_technique T1021.001;)
+
+# SSH lateral movement
+alert tcp $HOME_NET any -> $HOME_NET 22 (msg:"CARDEA Internal SSH Connection"; \
+    flow:to_server,established; \
+    classtype:policy-violation; sid:9000012; rev:1; \
+    metadata:mitre_attack_tactic TA0008, mitre_attack_technique T1021.004;)
+
+# WinRM lateral movement
+alert tcp $HOME_NET any -> $HOME_NET 5985:5986 (msg:"CARDEA WinRM Connection Detected"; \
+    flow:to_server,established; \
+    classtype:policy-violation; sid:9000013; rev:1; \
+    metadata:mitre_attack_tactic TA0008, mitre_attack_technique T1021.006;)
+
+# -----------------------------------------------------------------------------
+# Data Exfiltration Indicators
+# -----------------------------------------------------------------------------
+
+# Large outbound data transfer (>10MB in single connection)
+alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"CARDEA Large Outbound Transfer"; \
+    flow:to_server,established; dsize:>1000000; \
+    threshold:type threshold, track by_src, count 10, seconds 60; \
+    classtype:policy-violation; sid:9000020; rev:1; \
+    metadata:mitre_attack_tactic TA0010, mitre_attack_technique T1048;)
+
+# DNS tunneling indicator (long DNS queries)
+alert dns $HOME_NET any -> any 53 (msg:"CARDEA Possible DNS Tunneling - Long Query"; \
+    dns.query; content:"."; pcre:"/^[a-z0-9]{30,}\./i"; \
+    classtype:policy-violation; sid:9000021; rev:1; \
+    metadata:mitre_attack_tactic TA0010, mitre_attack_technique T1071.004;)
+
+# High-entropy subdomain (possible DGA or tunneling)
+alert dns $HOME_NET any -> any 53 (msg:"CARDEA High-Entropy DNS Query"; \
+    dns.query; pcre:"/^[a-z0-9]{20,}\.[a-z]{2,10}\./i"; \
+    classtype:policy-violation; sid:9000022; rev:1; \
+    metadata:mitre_attack_tactic TA0011, mitre_attack_technique T1568.002;)
+
+# -----------------------------------------------------------------------------
+# Suspicious Outbound Connections
+# -----------------------------------------------------------------------------
+
+# Connection to Tor exit node (placeholder - use threat intel feeds)
+# alert tcp $HOME_NET any -> $EXTERNAL_NET any (msg:"CARDEA Tor Network Connection"; \
+#     flow:to_server,established; \
+#     classtype:policy-violation; sid:9000030; rev:1;)
+
+# Connection to known cloud file sharing on non-standard port
+alert tcp $HOME_NET any -> $EXTERNAL_NET !80 (msg:"CARDEA Cloud Service on Non-Standard Port"; \
+    flow:to_server,established; \
+    content:"Host|3a|"; nocase; \
+    pcre:"/Host:\s*(drive\.google\.com|dropbox\.com|onedrive\.live\.com|mega\.nz)/i"; \
+    classtype:policy-violation; sid:9000031; rev:1; \
+    metadata:mitre_attack_tactic TA0010, mitre_attack_technique T1567.002;)
+
+# -----------------------------------------------------------------------------
+# Credential Access Indicators
+# -----------------------------------------------------------------------------
+
+# LDAP bind attempt from non-DC
+alert tcp $HOME_NET any -> $DC_SERVERS 389 (msg:"CARDEA LDAP Query from Workstation"; \
+    flow:to_server,established; \
+    classtype:credential-theft; sid:9000040; rev:1; \
+    metadata:mitre_attack_tactic TA0006, mitre_attack_technique T1087.002;)
+
+# Kerberos TGS request for sensitive service (SPNs)
+# Note: Requires Kerberos dissection enabled
+alert tcp $HOME_NET any -> $DC_SERVERS 88 (msg:"CARDEA Kerberos Service Ticket Request"; \
+    flow:to_server,established; \
+    classtype:credential-theft; sid:9000041; rev:1; \
+    metadata:mitre_attack_tactic TA0006, mitre_attack_technique T1558.003;)
+
+# -----------------------------------------------------------------------------
+# Command and Control Indicators
+# -----------------------------------------------------------------------------
+
+# HTTP beaconing pattern (regular interval connections)
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"CARDEA Possible HTTP Beaconing"; \
+    flow:to_server,established; \
+    http.method; content:"GET"; \
+    threshold:type both, track by_src, count 60, seconds 300; \
+    classtype:trojan-activity; sid:9000050; rev:1; \
+    metadata:mitre_attack_tactic TA0011, mitre_attack_technique T1071.001;)
+
+# HTTPS to IP address (no domain name)
+alert tls $HOME_NET any -> $EXTERNAL_NET 443 (msg:"CARDEA HTTPS to IP Address"; \
+    flow:to_server,established; tls.sni; content:!"."; \
+    classtype:trojan-activity; sid:9000051; rev:1; \
+    metadata:mitre_attack_tactic TA0011, mitre_attack_technique T1573.002;)
+
+# Non-standard port for common protocols
+alert tcp $HOME_NET any -> $EXTERNAL_NET !80 (msg:"CARDEA HTTP on Non-Standard Port"; \
+    flow:to_server,established; \
+    content:"GET "; depth:4; content:" HTTP/"; distance:1; \
+    classtype:policy-violation; sid:9000052; rev:1;)
+
+# -----------------------------------------------------------------------------
+# Malware Indicators
+# -----------------------------------------------------------------------------
+
+# Executable download over HTTP
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"CARDEA Executable Download via HTTP"; \
+    flow:to_client,established; \
+    file_data; content:"MZ"; depth:2; content:"PE"; distance:0; within:256; \
+    classtype:policy-violation; sid:9000060; rev:1; \
+    metadata:mitre_attack_tactic TA0001, mitre_attack_technique T1105;)
+
+# PowerShell download cradle pattern in HTTP
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"CARDEA PowerShell Download Cradle"; \
+    flow:to_server,established; \
+    http.uri; content:"powershell"; nocase; \
+    pcre:"/(IEX|Invoke-Expression|downloadstring|Net\.WebClient)/i"; \
+    classtype:trojan-activity; sid:9000061; rev:1; \
+    metadata:mitre_attack_tactic TA0002, mitre_attack_technique T1059.001;)
+
+# -----------------------------------------------------------------------------
+# IoT/OT Detection (if applicable)
+# -----------------------------------------------------------------------------
+
+# Modbus function code scan
+alert tcp any any -> $MODBUS_SERVER 502 (msg:"CARDEA Modbus Function Code Scan"; \
+    flow:to_server,established; \
+    threshold:type both, track by_src, count 10, seconds 5; \
+    classtype:attempted-recon; sid:9000070; rev:1;)
+
+# DNP3 broadcast
+alert tcp any any -> $DNP3_SERVER 20000 (msg:"CARDEA DNP3 Broadcast Message"; \
+    flow:to_server,established; \
+    classtype:misc-activity; sid:9000071; rev:1;)
+
+# -----------------------------------------------------------------------------
+# End of Cardea Custom Rules
+# -----------------------------------------------------------------------------
