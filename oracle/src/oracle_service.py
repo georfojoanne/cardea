@@ -229,6 +229,12 @@ def create_app() -> FastAPI:
             async with get_db() as db:
                 analytics_data = await calculate_analytics(db, time_range)
             
+            # Generate AI insight based on current threat landscape
+            ai_insight = await generate_ai_insight(
+                analytics_data, 
+                threat_analyzer
+            )
+            
             return AnalyticsResponse(
                 total_alerts=analytics_data.get("total_alerts", 0),
                 risk_score=analytics_data.get("risk_score", 0.0),
@@ -236,15 +242,142 @@ def create_app() -> FastAPI:
                 generated_at=datetime.now(timezone.utc),
                 time_range=time_range,
                 alerts_by_severity=analytics_data.get("severity_stats") or {},
-                alerts_by_type={},
+                alerts_by_type=analytics_data.get("type_stats") or {},
                 top_threats=[],
-                trend_data=[]
+                trend_data=[],
+                ai_insight=ai_insight
             )
         except Exception as e:
             logger.error(f"Analytics Error: {e}")
             raise HTTPException(status_code=500, detail=str(e))
     
     return app
+
+async def generate_ai_insight(analytics_data: Dict[str, Any], threat_analyzer: ThreatAnalyzer):
+    """Generate human-readable AI insight based on current threat data"""
+    from models import AIInsight
+    
+    total_alerts = analytics_data.get("total_alerts", 0)
+    risk_score = analytics_data.get("risk_score", 0.0)
+    severity_stats = analytics_data.get("severity_stats", {})
+    alerts = analytics_data.get("alerts", [])
+    
+    # Count critical/high alerts
+    critical_count = severity_stats.get("critical", 0)
+    high_count = severity_stats.get("high", 0)
+    
+    # Try AI-powered insight generation
+    if threat_analyzer.ai_client and settings.AI_ENABLED:
+        try:
+            # Prepare context for AI
+            context = {
+                "total_alerts": total_alerts,
+                "risk_score": round(risk_score, 3),
+                "severity_breakdown": severity_stats,
+                "recent_alert_types": list(set(a.get("alert_type", "unknown") for a in alerts[:10])),
+                "critical_alerts": critical_count,
+                "high_alerts": high_count,
+            }
+            
+            prompt = """Based on the current security telemetry from the Cardea network monitoring system, provide a brief security briefing for a non-technical business owner.
+
+Your response MUST be in this exact JSON format:
+{
+  "summary": "One sentence summary of the overall security status",
+  "what_happened": "2-3 sentences explaining what the system detected in plain language",
+  "why_it_matters": "2-3 sentences about the business impact",
+  "recommended_actions": ["Action 1", "Action 2", "Action 3"],
+  "confidence": 0.85
+}
+
+Guidelines:
+- If risk is low (<20%) and no critical alerts: Be reassuring
+- If risk is moderate (20-50%): Note areas of concern but don't alarm
+- If risk is high (>50%) or critical alerts exist: Be clear about urgency
+- Always provide actionable next steps"""
+
+            ai_response = await threat_analyzer.reason_with_ai(
+                prompt=prompt,
+                context=context,
+                system_role="You are a friendly cybersecurity advisor who explains technical threats in simple business terms."
+            )
+            
+            if ai_response:
+                import re
+                import json
+                # Extract JSON from response
+                json_match = re.search(r'```json\s*(.*?)\s*```', ai_response, re.DOTALL)
+                if json_match:
+                    insight_data = json.loads(json_match.group(1))
+                else:
+                    insight_data = json.loads(ai_response)
+                
+                return AIInsight(
+                    summary=insight_data.get("summary", "Security analysis complete."),
+                    what_happened=insight_data.get("what_happened", ""),
+                    why_it_matters=insight_data.get("why_it_matters", ""),
+                    recommended_actions=insight_data.get("recommended_actions", []),
+                    confidence=insight_data.get("confidence", 0.8),
+                    ai_powered=True
+                )
+                
+        except Exception as e:
+            logger.warning(f"AI insight generation failed: {e}. Using deterministic fallback.")
+    
+    # Deterministic fallback
+    if total_alerts == 0:
+        return AIInsight(
+            summary="Your network is quiet. No security alerts detected.",
+            what_happened="The Cardea monitoring system has been actively scanning your network and found no suspicious activity during this time period.",
+            why_it_matters="This is a good sign! Your security measures appear to be working effectively.",
+            recommended_actions=[
+                "Continue regular security monitoring",
+                "Ensure all software is up to date",
+                "Review access permissions periodically"
+            ],
+            confidence=0.95,
+            ai_powered=False
+        )
+    elif critical_count > 0 or high_count > 0:
+        return AIInsight(
+            summary=f"⚠️ Action Required: {critical_count + high_count} high-priority security alerts detected.",
+            what_happened=f"Your network monitoring system has detected {critical_count} critical and {high_count} high severity events. These may indicate attempted unauthorized access, malware activity, or suspicious network behavior.",
+            why_it_matters="High-severity alerts can indicate active threats that may compromise your data, disrupt operations, or expose your business to liability. Prompt attention is recommended.",
+            recommended_actions=[
+                "Review the critical alerts in the feed below immediately",
+                "Check if any unusual login attempts occurred",
+                "Consider temporarily isolating affected systems if compromise is suspected",
+                "Document findings for potential incident response"
+            ],
+            confidence=0.85,
+            ai_powered=False
+        )
+    elif risk_score > 0.3:
+        return AIInsight(
+            summary=f"Moderate activity detected: {total_alerts} alerts with elevated risk score.",
+            what_happened=f"The system detected {total_alerts} security events. While none are critical, the overall pattern suggests elevated network activity that warrants attention.",
+            why_it_matters="Moderate-risk events often represent reconnaissance or probing activity. Addressing them early can prevent escalation to more serious threats.",
+            recommended_actions=[
+                "Review the alert feed for patterns",
+                "Verify all detected hosts are authorized devices",
+                "Consider tightening firewall rules if unusual traffic sources are identified"
+            ],
+            confidence=0.8,
+            ai_powered=False
+        )
+    else:
+        return AIInsight(
+            summary=f"Normal operations: {total_alerts} low-priority events logged.",
+            what_happened=f"Your network monitoring detected {total_alerts} events, all classified as low severity. This is typical background activity for an active network.",
+            why_it_matters="Low-severity alerts help you understand your network's normal behavior patterns. No immediate action is required.",
+            recommended_actions=[
+                "Continue normal monitoring",
+                "Review alerts periodically for patterns",
+                "Use this data to establish baseline behavior"
+            ],
+            confidence=0.9,
+            ai_powered=False
+        )
 
 async def process_alert_background(alert_id: int, threat_analyzer: ThreatAnalyzer, correlator: AlertCorrelator):
     """AI analysis with strict token budgeting"""

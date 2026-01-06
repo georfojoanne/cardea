@@ -3,7 +3,7 @@ Pydantic Models for Oracle Backend
 API request/response models and data validation
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
@@ -105,6 +105,16 @@ class ThreatAnalysisResponse(BaseModel):
     correlations: List[Dict[str, Any]]
     processing_time_ms: int
 
+class AIInsight(BaseModel):
+    """AI-generated security insight for human-readable display"""
+    summary: str = Field(..., description="Brief summary of the security situation")
+    what_happened: str = Field(default="", description="Plain language explanation of events")
+    why_it_matters: str = Field(default="", description="Business impact explanation")
+    recommended_actions: List[str] = Field(default_factory=list, description="Prioritized action items")
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0, description="AI confidence in analysis")
+    generated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    ai_powered: bool = Field(default=False, description="Whether AI was used for this insight")
+
 class AnalyticsResponse(BaseModel):
     """Analytics data response - aligned with Dashboard frontend types"""
     time_range: str
@@ -115,6 +125,7 @@ class AnalyticsResponse(BaseModel):
     alerts_by_type: Dict[str, int] = Field(default_factory=dict)
     top_threats: List[ThreatInfo] = Field(default_factory=list)
     trend_data: List[Dict[str, Any]] = Field(default_factory=list)
+    ai_insight: Optional[AIInsight] = Field(default=None, description="AI-generated security insight")
     generated_at: datetime
 
 class WebhookAlert(BaseModel):

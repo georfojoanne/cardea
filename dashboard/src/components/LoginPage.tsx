@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Eye, EyeOff, Lock, Loader2, Mail } from 'lucide-react';
+import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
 // You would replace these with actual SVGs or icon components for Google/Apple
@@ -50,16 +50,31 @@ const LoginPage: React.FC<LoginPageProps> = ({ onSubmit }) => {
         if (error) setError(null);
     };
 
+    // Secret dev admin credentials - REMOVE IN PRODUCTION
+    const DEV_ADMIN = {
+        email: 'admin@cardea.dev',
+        password: 'cardea2026!'
+    };
+
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
         setError(null);
 
         try {
+            // Dev bypass: Check for secret admin account
+            if (formData.email === DEV_ADMIN.email && formData.password === DEV_ADMIN.password) {
+                await new Promise((resolve) => setTimeout(resolve, 500)); // Brief delay for UX
+                localStorage.setItem('cardea_dev_auth', 'true');
+                navigate('/dashboard');
+                return;
+            }
+
             if (onSubmit) {
                 await onSubmit(formData);
             } else {
-                await new Promise((resolve) => setTimeout(resolve, 1500));
+                // No backend configured - show error for non-dev accounts
+                throw new Error('Auth backend not configured');
             }
             navigate('/dashboard');
         } catch (err) {
