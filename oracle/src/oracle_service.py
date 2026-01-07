@@ -8,7 +8,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import redis.asyncio as redis
@@ -170,7 +170,7 @@ def create_app() -> FastAPI:
             
         return HealthResponse(
             status=status,
-            timestamp=datetime.now(datetime.UTC),
+            timestamp=datetime.now(timezone.utc),
             version=settings.VERSION,
             services=services,
             system=SystemStatus(
@@ -203,7 +203,7 @@ def create_app() -> FastAPI:
                     title=alert_request.title,
                     description=alert_request.description,
                     raw_data=alert_request.raw_data,
-                    timestamp=alert_request.timestamp or datetime.now(datetime.UTC)
+                    timestamp=alert_request.timestamp or datetime.now(timezone.utc)
                 )
                 db.add(alert)
                 await db.flush() 
@@ -245,7 +245,7 @@ def create_app() -> FastAPI:
                 total_alerts=analytics_data.get("total_alerts", 0),
                 risk_score=analytics_data.get("risk_score", 0.0),
                 alerts=analytics_data.get("alerts") or [],
-                generated_at=datetime.now(datetime.UTC),
+                generated_at=datetime.now(timezone.utc),
                 time_range=time_range,
                 alerts_by_severity=analytics_data.get("severity_stats") or {},
                 alerts_by_type=analytics_data.get("type_stats") or {},
@@ -412,7 +412,7 @@ async def process_alert_background(alert_id: int, threat_analyzer: ThreatAnalyze
             # Update alert
             alert.threat_score = threat_score
             alert.correlations = correlations
-            alert.processed_at = datetime.now(datetime.UTC)
+            alert.processed_at = datetime.now(timezone.utc)
             await db.flush()
             
             # Index threat for RAG (non-blocking, failures are logged but not critical)
