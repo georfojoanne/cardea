@@ -104,15 +104,18 @@ class KitNETService:
         logger.info("🔍 Starting packet anomaly detection...")
         
         processed = 0
+        log_interval = 1000
 
-                try:
-                    packet_data = await asyncio.wait_for(
-                        packet_queue.get(), 
-                        timeout=5.0
-                    )
-                except asyncio.TimeoutError:
-                    continue
-                
+        while self.is_running:
+            try:
+                packet_data = await asyncio.wait_for(
+                    packet_queue.get(), 
+                    timeout=5.0
+                )
+            except asyncio.TimeoutError:
+                continue
+            
+            try:
                 # Extract features and detect anomaly
                 features = self.detector.extract_features(packet_data)
                 anomaly_score = self.detector.detect_anomaly(features)

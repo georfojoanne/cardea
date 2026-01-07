@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { 
   Shield, Activity, Zap, Server, AlertCircle, AlertTriangle, Info, XCircle,
-  Sparkles, CheckCircle2, WifiOff, RefreshCw, Eye, EyeOff
+  Sparkles, CheckCircle2, WifiOff, RefreshCw
 } from 'lucide-react';
 import type { AnalyticsResponse, Alert, AIInsight } from './types'; 
 import { ThreatOverview } from './components/ThreatOverview';
@@ -308,31 +308,31 @@ const App: React.FC = () => {
   const criticalCount = severityStats['critical'] || 0;
   const highCount = severityStats['high'] || 0;
 
-  // View mode: 'simple' (default) or 'detailed'
-  const [viewMode, setViewMode] = useState<'simple' | 'detailed'>('simple');
+  // View mode: 'simple' (default) or 'detailed' - TODO: Implement UI toggle
+  // const [viewMode, setViewMode] = useState<'simple' | 'detailed'>('simple');
   
-  // System status (lockdown, blocked IPs, etc.)
-  const [systemStatus, setSystemStatus] = useState<{
-    lockdown_active: boolean;
-    blocked_ips_count: number;
-    monitoring_enhanced: boolean;
-  } | null>(null);
+  // System status (lockdown, blocked IPs, etc.) - TODO: Wire to API
+  // const [systemStatus, setSystemStatus] = useState<{
+  //   lockdown_active: boolean;
+  //   blocked_ips_count: number;
+  //   monitoring_enhanced: boolean;
+  // } | null>(null);
 
-  // Fetch system status
-  const fetchSystemStatus = useCallback(async () => {
-    try {
-      const res = await axios.get(`${ORACLE_URL}/api/status`, { timeout: 5000 });
-      setSystemStatus(res.data);
-    } catch (err) {
-      console.warn('Could not fetch system status');
-    }
-  }, []);
+  // Fetch system status - TODO: Enable when API is ready
+  // const fetchSystemStatus = useCallback(async () => {
+  //   try {
+  //     const res = await axios.get(`${ORACLE_URL}/api/status`, { timeout: 5000 });
+  //     setSystemStatus(res.data);
+  //   } catch (err) {
+  //     console.warn('Could not fetch system status');
+  //   }
+  // }, []);
 
-  useEffect(() => {
-    fetchSystemStatus();
-    const interval = setInterval(fetchSystemStatus, 10000);
-    return () => clearInterval(interval);
-  }, [fetchSystemStatus]);
+  // useEffect(() => {
+  //   fetchSystemStatus();
+  //   const interval = setInterval(fetchSystemStatus, 10000);
+  //   return () => clearInterval(interval);
+  // }, [fetchSystemStatus]);
 
   // Handle security action decisions - REAL API CALLS
   const handleSecurityAction = useCallback(async (action: { id: string; action_type: string; target?: string }) => {
