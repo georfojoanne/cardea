@@ -4,15 +4,17 @@ Includes Redis-based De-duplication and Rate Limiting
 """
 
 import hashlib
+import json
 import logging
 import os
+import re
 from datetime import datetime
 from typing import Any
 
 import redis.asyncio as redis
 from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from analytics import AlertCorrelator, ThreatAnalyzer
 from config import settings

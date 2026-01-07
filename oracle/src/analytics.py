@@ -3,12 +3,15 @@ Analytics and Threat Processing
 Advanced threat analysis with AI-powered agentic reasoning
 """
 
+import json
 import logging
+import re
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from openai import AsyncAzureOpenAI
+from openai.types.chat import ChatCompletion
 
 from config import settings
 from database import Alert, get_db
