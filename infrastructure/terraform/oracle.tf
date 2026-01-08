@@ -222,20 +222,20 @@ resource "azurerm_container_app" "oracle" {
 
       # Liveness probe
       liveness_probe {
-        transport = "HTTP"
-        path      = "/health"
-        port      = 8000
-        initial_delay    = 10
-        interval_seconds = 30
+        transport             = "HTTP"
+        path                  = "/health"
+        port                  = 8000
+        initial_delay_seconds = 10
+        interval_seconds      = 30
       }
 
       # Readiness probe
       readiness_probe {
-        transport = "HTTP"
-        path      = "/health"
-        port      = 8000
-        initial_delay    = 5
-        interval_seconds = 10
+        transport             = "HTTP"
+        path                  = "/health"
+        port                  = 8000
+        initial_delay_seconds = 5
+        interval_seconds      = 10
       }
     }
   }
