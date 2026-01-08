@@ -1,0 +1,44 @@
+# ============================================
+# Production Environment Configuration EXAMPLE
+# ============================================
+# Copy this file to prod.tfvars and fill in values:
+#   cp prod.tfvars.example prod.tfvars
+#
+# Usage: terraform plan -var-file="prod.tfvars"
+#
+# IMPORTANT: Review all values before deploying to production!
+# Estimated monthly cost: ~$150-300 depending on usage
+
+is_production = true
+
+project_name = "cardea"
+location     = "East Asia"
+ai_location  = "swedencentral"
+
+# Database - SET A STRONG PASSWORD
+# Option 1: Set here (NOT recommended - use env var instead)
+# db_admin_password = "YourSecurePassword123!"
+#
+# Option 2: Set via environment variable (RECOMMENDED)
+# export TF_VAR_db_admin_password="YourSecurePassword123!"
+db_admin_username = "oracle_admin"
+
+# Oracle container image tag - use specific version in prod
+oracle_image_tag = "v1.0.0"
+
+# Sentry allowed IPs - RESTRICT ACCESS IN PRODUCTION
+# Add the public IPs of all Sentry edge devices
+sentry_allowed_ips = [
+  # "203.0.113.10/32",  # Home Sentry - REPLACE WITH REAL IP
+  # "198.51.100.20/32", # Office Sentry - REPLACE WITH REAL IP
+]
+
+# Sentry API key
+# Set via environment variable: export TF_VAR_sentry_api_key="your-key"
+
+tags = {
+  Project     = "Cardea"
+  Environment = "Production"
+  ManagedBy   = "Terraform"
+  CostCenter  = "Security"
+}
