@@ -612,7 +612,7 @@ const LoginPage: React.FC = () => {
                             </button>
                         </form>
                     )}
-
+{/* mock */}
                     {/* Dev Mode Notice */}
                     {!isAzureHosted() && mode === 'login' && (
                         <div className="p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
