@@ -27,8 +27,26 @@ jobs:
       - name: Build Project
         working-directory: dashboard
         run: |
+          echo "🔹 Starting Build..."
           npm run build
-          cp staticwebapp.config.json dist/
+          
+          echo "🔹 content of dashboard root:"
+          ls -la
+          
+          echo "🔹 Copying config file..."
+          # We use -v (verbose) to see the confirmation in logs
+          cp -v staticwebapp.config.json dist/
+          
+          echo "🔹 VERIFYING dist folder content (Critical Step):"
+          ls -la dist/
+          
+          echo "🔹 Checking if config exists in dist:"
+          if [ -f "dist/staticwebapp.config.json" ]; then
+            echo "✅ SUCCESS: Config file found in dist!"
+          else
+            echo "❌ ERROR: Config file MISSING from dist!"
+            exit 1
+          fi
         env:
           VITE_ORACLE_URL: ${{ vars.ORACLE_URL }}
 
