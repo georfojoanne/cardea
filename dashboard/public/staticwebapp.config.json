@@ -32,19 +32,20 @@
     {
       "route": "/api/*",
       "allowedRoles": ["authenticated"]
-    },
-    {
-      "route": "/.auth/login/aad",
-      "statusCode": 302
-    },
-    {
-      "route": "/.auth/login/google",
-      "statusCode": 302
     }
   ],
   "navigationFallback": {
     "rewrite": "/index.html",
-    "exclude": ["/assets/*", "/*.js", "/*.css", "/*.ico", "/*.png", "/*.svg", "/.auth/*"]
+    "exclude": [
+      "/assets/*", 
+      "/*.js", 
+      "/*.css", 
+      "/*.ico", 
+      "/*.png", 
+      "/*.svg", 
+      "/.auth/*",
+      "/*.json" 
+    ]
   },
   "responseOverrides": {
     "401": {

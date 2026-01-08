@@ -41,13 +41,6 @@ jobs:
           npm run build
         env:
           VITE_ORACLE_URL: ${{ vars.ORACLE_URL }}
-          
-      - name: 🔍 X-Ray - Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-dist-folder
-          path: dashboard/dist/
-          retention-days: 1
 
       - name: Azure Login
         uses: azure/login@v2
