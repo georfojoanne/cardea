@@ -627,7 +627,7 @@ const LoginPage: React.FC = () => {
                     <p>© 2026 Cardea Security. Protected by AI.</p>
                 </div>
             </div>
-
+{/* mock */}
             {/* Right Section - Feature Showcase */}
             <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden bg-linear-to-br from-slate-900 via-cyan-950/30 to-slate-900">
                 <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(34,211,238,0.1),transparent_50%)]" />
